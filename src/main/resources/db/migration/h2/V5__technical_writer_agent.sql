@@ -8,7 +8,7 @@ ALTER TABLE agent_sessions DROP CONSTRAINT IF EXISTS agent_sessions_status_check
 ALTER TABLE agent_sessions ADD CONSTRAINT chk_agent_sessions_status
     CHECK (status IN ('IN_PROGRESS', 'PR_CREATED', 'UPDATING', 'COMPLETED', 'FAILED', 'ISSUE_CREATED'));
 
-ALTER TABLE system_prompts ADD COLUMN IF NOT EXISTS writer_agent_system_prompt CLOB;
+ALTER TABLE system_prompts ADD COLUMN IF NOT EXISTS writer_agent_system_prompt TEXT;
 
 UPDATE system_prompts
 SET writer_agent_system_prompt = 'You are an expert technical writer and product-minded software engineer. Your task is to improve GitHub issues so they are complete, consistent, plausible, actionable, and testable for a software development team.
