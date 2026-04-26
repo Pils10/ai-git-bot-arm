@@ -149,14 +149,14 @@ public class AgentSession {
         COMPLETED,
 
         /**
-         * Agent failed to implement the issue.
-         */
-        FAILED,
-
-        /**
          * Writer agent has created the improved issue.
          */
-        ISSUE_CREATED
+        ISSUE_CREATED,
+
+        /**
+         * Agent failed to implement the issue.
+         */
+        FAILED
     }
 
     public enum AgentSessionType {
