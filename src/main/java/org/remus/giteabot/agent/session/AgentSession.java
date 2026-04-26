@@ -63,6 +63,11 @@ public class AgentSession {
     private Long prNumber;
 
     /**
+     * The issue number created by the technical-writer agent.
+     */
+    private Long generatedIssueNumber;
+
+    /**
      * Current status of the agent session.
      */
     @Enumerated(EnumType.STRING)
@@ -135,7 +140,12 @@ public class AgentSession {
          * Agent failed to implement the issue.
          */
         FAILED
+        ,
+
+        /**
+         * Writer agent has created the improved issue.
+         */
+        ISSUE_CREATED
     }
 }
-
 

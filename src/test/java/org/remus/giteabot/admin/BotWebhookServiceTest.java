@@ -10,6 +10,7 @@ import org.remus.giteabot.agent.session.AgentSession;
 import org.remus.giteabot.agent.session.AgentSessionService;
 import org.remus.giteabot.agent.validation.ToolExecutionService;
 import org.remus.giteabot.agent.validation.WorkspaceService;
+import org.remus.giteabot.ai.AiClient;
 import org.remus.giteabot.config.AgentConfigProperties;
 import org.remus.giteabot.config.PromptService;
 import org.remus.giteabot.config.ReviewConfigProperties;
@@ -45,6 +46,7 @@ class BotWebhookServiceTest {
     @Mock private WorkspaceService workspaceService;
     @Mock private BotService botService;
     @Mock private RepositoryApiClient repositoryApiClient;
+    @Mock private AiClient aiClient;
 
     private BotWebhookService botWebhookService;
 
@@ -118,6 +120,43 @@ class BotWebhookServiceTest {
     }
 
     // ---- handlePrComment routing tests ----
+
+    @Test
+    void writerBot_ignoresPullRequestReviewEvent() {
+        Bot bot = createBot("writer", "writer_bot", false);
+        bot.setBotType(BotType.WRITER);
+
+        botWebhookService.reviewPullRequest(bot, new WebhookPayload());
+
+        verify(aiClientFactory, never()).getClient(any());
+        verify(giteaClientFactory, never()).getApiClient(any());
+    }
+
+    @Test
+    void writerBot_assignedToIssueCreatesImprovedIssueWhenReady() {
+        Bot bot = createBot("writer", "writer_bot", false);
+        bot.setBotType(BotType.WRITER);
+        WebhookPayload payload = buildIssuePayload("Test", "my-repo", 12L, "Vague issue", "Do something");
+        AgentSession session = new AgentSession("Test", "my-repo", 12L, "Vague issue");
+
+        when(giteaClientFactory.getApiClient(any())).thenReturn(repositoryApiClient);
+        when(aiClientFactory.getClient(any())).thenReturn(aiClient);
+        when(agentSessionService.getSessionByIssue("Test", "my-repo", 12L)).thenReturn(Optional.empty());
+        when(agentSessionService.createSession("Test", "my-repo", 12L, "Vague issue")).thenReturn(session);
+        when(agentSessionService.toAiMessages(session)).thenReturn(java.util.List.of());
+        when(agentConfig.getMaxTokens()).thenReturn(4096);
+        when(aiClient.chat(any(), any(), eq("Writer prompt"), any(), eq(4096))).thenReturn("""
+                {"qualityAssessment":"Missing acceptance criteria","revisedIssueDraft":"## Goal\\nDo something testable","assumptions":[],"openQuestions":[],"readyToCreate":true}
+                """);
+        when(repositoryApiClient.createIssue(eq("Test"), eq("my-repo"), eq("AI Created Issue: Vague issue"), any()))
+                .thenReturn(99L);
+
+        botWebhookService.handleIssueAssigned(bot, payload);
+
+        verify(repositoryApiClient).createIssue(eq("Test"), eq("my-repo"),
+                eq("AI Created Issue: Vague issue"), org.mockito.ArgumentMatchers.contains("Originates from #12"));
+        verify(agentSessionService).setGeneratedIssueNumber(session, 99L);
+    }
 
     @Nested
     class HandlePrCommentTests {
@@ -247,6 +286,7 @@ class BotWebhookServiceTest {
         systemPrompt.setId(1L);
         systemPrompt.setReviewSystemPrompt("Review prompt");
         systemPrompt.setIssueAgentSystemPrompt("Agent prompt");
+        systemPrompt.setWriterAgentSystemPrompt("Writer prompt");
         bot.setSystemPrompt(systemPrompt);
         return bot;
     }
@@ -317,6 +357,31 @@ class BotWebhookServiceTest {
         commentUser.setLogin("tom");
         comment.setUser(commentUser);
         payload.setComment(comment);
+
+        return payload;
+    }
+
+    private WebhookPayload buildIssuePayload(String owner, String repo,
+                                             long issueNumber, String title, String body) {
+        WebhookPayload payload = new WebhookPayload();
+        payload.setAction("assigned");
+
+        WebhookPayload.Repository repository = new WebhookPayload.Repository();
+        repository.setName(repo);
+        repository.setFullName(owner + "/" + repo);
+        WebhookPayload.Owner repoOwner = new WebhookPayload.Owner();
+        repoOwner.setLogin(owner);
+        repository.setOwner(repoOwner);
+        payload.setRepository(repository);
+
+        WebhookPayload.Issue issue = new WebhookPayload.Issue();
+        issue.setNumber(issueNumber);
+        issue.setTitle(title);
+        issue.setBody(body);
+        WebhookPayload.Owner assignee = new WebhookPayload.Owner();
+        assignee.setLogin("writer_bot");
+        issue.setAssignee(assignee);
+        payload.setIssue(issue);
 
         return payload;
     }

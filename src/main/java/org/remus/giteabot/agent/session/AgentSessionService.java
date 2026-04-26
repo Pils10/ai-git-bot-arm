@@ -61,6 +61,13 @@ public class AgentSessionService {
     }
 
     @Transactional
+    public AgentSession setGeneratedIssueNumber(AgentSession session, Long generatedIssueNumber) {
+        session.setGeneratedIssueNumber(generatedIssueNumber);
+        session.setStatus(AgentSession.AgentSessionStatus.ISSUE_CREATED);
+        return repository.save(session);
+    }
+
+    @Transactional
     public AgentSession setStatus(AgentSession session, AgentSession.AgentSessionStatus status) {
         session.setStatus(status);
         return repository.save(session);

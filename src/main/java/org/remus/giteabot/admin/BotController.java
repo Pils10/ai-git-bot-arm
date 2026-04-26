@@ -79,6 +79,9 @@ public class BotController {
             bot.setAiIntegration(aiIntegration);
             bot.setGitIntegration(gitIntegration);
             bot.setSystemPrompt(systemPrompt);
+            if (bot.getBotType() == BotType.WRITER) {
+                bot.setAgentEnabled(false);
+            }
             botService.save(bot);
             redirectAttributes.addFlashAttribute("success", "Bot saved successfully");
         } catch (Exception e) {
@@ -95,6 +98,7 @@ public class BotController {
         model.addAttribute("aiIntegrations", aiIntegrationService.findAll());
         model.addAttribute("gitIntegrations", gitIntegrationService.findAll());
         model.addAttribute("systemPrompts", systemPrompts);
+        model.addAttribute("botTypes", BotType.values());
         model.addAttribute("activeNav", "bots");
     }
 
