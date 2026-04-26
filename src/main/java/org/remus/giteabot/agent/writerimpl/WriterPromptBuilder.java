@@ -7,7 +7,7 @@ import java.util.List;
 
 public class WriterPromptBuilder {
 
-    public String buildInitialPrompt(Long issueNumber, String issueTitle, String issueBody) {
+    public String buildInitialPrompt(Long issueNumber, String issueTitle, String issueBody, String treeContext) {
         return String.format("""
                 ## Originating issue
                 Number: #%d
@@ -16,8 +16,11 @@ public class WriterPromptBuilder {
                 Body:
                 %s
                 
+                ## Repository files
+                %s
+                
                 Improve this issue or ask the minimum critical follow-up questions.
-                """, issueNumber, issueTitle, issueBody != null ? issueBody : "(empty)");
+                """, issueNumber, issueTitle, issueBody != null ? issueBody : "(empty)", treeContext);
     }
 
     public String buildContinuationPrompt(String commentBody) {
@@ -75,5 +78,26 @@ public class WriterPromptBuilder {
         for (String value : values) {
             sb.append("- ").append(value).append("\n");
         }
+    }
+
+    public String buildTreeContext(List<java.util.Map<String, Object>> tree) {
+        if (tree == null || tree.isEmpty()) {
+            return "No repository tree is available.";
+        }
+        StringBuilder sb = new StringBuilder();
+        int count = 0;
+        for (java.util.Map<String, Object> entry : tree) {
+            if (count >= 500) {
+                sb.append("... (truncated, ").append(tree.size() - count).append(" more entries)\n");
+                break;
+            }
+            String type = String.valueOf(entry.getOrDefault("type", "blob"));
+            String path = String.valueOf(entry.getOrDefault("path", ""));
+            if ("blob".equals(type) && !path.isBlank()) {
+                sb.append("- ").append(path).append("\n");
+                count++;
+            }
+        }
+        return sb.isEmpty() ? "No repository files found." : sb.toString();
     }
 }

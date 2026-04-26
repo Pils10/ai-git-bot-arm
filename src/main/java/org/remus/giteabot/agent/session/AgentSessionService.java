@@ -25,8 +25,17 @@ public class AgentSessionService {
 
     @Transactional
     public AgentSession createSession(String owner, String repo, Long issueNumber, String issueTitle) {
-        log.info("Creating new agent session for issue #{} in {}/{}", issueNumber, owner, repo);
+        return createSession(owner, repo, issueNumber, issueTitle, AgentSession.AgentSessionType.CODING, null);
+    }
+
+    @Transactional
+    public AgentSession createSession(String owner, String repo, Long issueNumber, String issueTitle,
+                                      AgentSession.AgentSessionType sessionType, String issueAuthorUsername) {
+        log.info("Creating new {} agent session for issue #{} in {}/{}",
+                sessionType, issueNumber, owner, repo);
         AgentSession session = new AgentSession(owner, repo, issueNumber, issueTitle);
+        session.setSessionType(sessionType);
+        session.setIssueAuthorUsername(issueAuthorUsername);
         return repository.save(session);
     }
 

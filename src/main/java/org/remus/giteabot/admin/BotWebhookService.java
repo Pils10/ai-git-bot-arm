@@ -312,6 +312,7 @@ public class BotWebhookService {
             throw new IllegalStateException("Bot must have a system prompt assigned");
         }
         return new WriterAgentService(repoClient, aiClient, promptService, agentConfig,
-                agentSessionService, bot.getSystemPrompt().getWriterAgentSystemPrompt());
+                agentSessionService, toolExecutionService, workspaceService,
+                bot.getSystemPrompt().getWriterAgentSystemPrompt(), bot.getUsername());
     }
 }

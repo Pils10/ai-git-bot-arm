@@ -234,7 +234,8 @@ Writer bots are for creating first-class issue drafts:
 - Start a technical-writing workflow when assigned to an issue.
 - Review the originating issue for completeness, consistency, plausibility, testability, and implementation readiness.
 - Ask the issue author the minimum necessary follow-up questions when critical details are missing. The workflow waits for the original author before proceeding.
-- Use read-only issue tools (`get-issue`, `search-issues`) to inspect the current issue or related issues.
+- Use read-only issue tools (`get-issue`, `search-issues`) and read-only repository context tools (`requestFiles`, `rg`, `find`, `cat`, `git-log`, `git-blame`, `tree`, and `branch-switcher`) in a checked-out workspace. Writer bots cannot write repository files or run build/validation tools.
+- If a coding-agent session already exists for the issue, the writer bot posts a notice asking users to clone the issue for a separate writer workflow.
 - When no critical questions remain, create a new issue titled with the `AI Created Issue:` prefix and link it back to the originating issue.
 
 ## System Prompt Entries

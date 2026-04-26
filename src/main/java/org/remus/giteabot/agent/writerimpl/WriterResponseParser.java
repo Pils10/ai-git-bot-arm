@@ -38,6 +38,7 @@ public class WriterResponseParser {
                     .assumptions(nullToEmpty(response.getAssumptions()))
                     .openQuestions(nullToEmpty(response.getOpenQuestions()))
                     .readyToCreate(response.isReadyToCreate())
+                    .requestFiles(nullToEmpty(response.getRequestFiles()))
                     .requestTools(toToolRequests(response.getRequestTools()))
                     .build();
         } catch (JacksonException e) {
@@ -129,6 +130,7 @@ public class WriterResponseParser {
         private List<String> assumptions;
         private List<String> openQuestions;
         private boolean readyToCreate;
+        private List<String> requestFiles;
         private List<AiToolRequest> requestTools;
     }
 

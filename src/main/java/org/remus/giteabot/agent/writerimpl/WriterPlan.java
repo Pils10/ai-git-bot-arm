@@ -15,6 +15,7 @@ public class WriterPlan {
     private List<String> assumptions;
     private List<String> openQuestions;
     private boolean readyToCreate;
+    private List<String> requestFiles;
     private List<ImplementationPlan.ToolRequest> requestTools;
 
     public boolean hasQuestions() {
@@ -23,5 +24,9 @@ public class WriterPlan {
 
     public boolean hasToolRequests() {
         return requestTools != null && !requestTools.isEmpty();
+    }
+
+    public boolean hasContextRequests() {
+        return hasToolRequests() || requestFiles != null && !requestFiles.isEmpty();
     }
 }

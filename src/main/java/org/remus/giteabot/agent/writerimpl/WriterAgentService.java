@@ -4,15 +4,21 @@ import lombok.extern.slf4j.Slf4j;
 import org.remus.giteabot.agent.model.ImplementationPlan;
 import org.remus.giteabot.agent.session.AgentSession;
 import org.remus.giteabot.agent.session.AgentSessionService;
+import org.remus.giteabot.agent.validation.ToolExecutionService;
 import org.remus.giteabot.agent.validation.ToolResult;
+import org.remus.giteabot.agent.validation.WorkspaceResult;
+import org.remus.giteabot.agent.validation.WorkspaceService;
 import org.remus.giteabot.ai.AiClient;
 import org.remus.giteabot.ai.AiMessage;
 import org.remus.giteabot.config.AgentConfigProperties;
 import org.remus.giteabot.config.PromptService;
 import org.remus.giteabot.gitea.model.WebhookPayload;
 import org.remus.giteabot.repository.RepositoryApiClient;
+import tools.jackson.databind.ObjectMapper;
 
+import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -28,22 +34,32 @@ public class WriterAgentService {
     private final PromptService promptService;
     private final AgentConfigProperties agentConfig;
     private final AgentSessionService sessionService;
+    private final ToolExecutionService toolExecutionService;
+    private final WorkspaceService workspaceService;
     private final String writerAgentSystemPrompt;
+    private final String botUsername;
     private final WriterPromptBuilder promptBuilder = new WriterPromptBuilder();
     private final WriterResponseParser responseParser = new WriterResponseParser();
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     public WriterAgentService(RepositoryApiClient repositoryClient,
                               AiClient aiClient,
                               PromptService promptService,
                               AgentConfigProperties agentConfig,
                               AgentSessionService sessionService,
-                              String writerAgentSystemPrompt) {
+                              ToolExecutionService toolExecutionService,
+                              WorkspaceService workspaceService,
+                              String writerAgentSystemPrompt,
+                              String botUsername) {
         this.repositoryClient = repositoryClient;
         this.aiClient = aiClient;
         this.promptService = promptService;
         this.agentConfig = agentConfig;
         this.sessionService = sessionService;
+        this.toolExecutionService = toolExecutionService;
+        this.workspaceService = workspaceService;
         this.writerAgentSystemPrompt = writerAgentSystemPrompt;
+        this.botUsername = botUsername;
     }
 
     public void handleIssueAssigned(WebhookPayload payload) {
@@ -52,17 +68,53 @@ public class WriterAgentService {
         Long issueNumber = payload.getIssue().getNumber();
         String issueTitle = payload.getIssue().getTitle();
         String issueBody = payload.getIssue().getBody();
+        String issueRef = normalizeBranchRef(payload.getIssue().getRef());
 
-        if (sessionService.getSessionByIssue(owner, repo, issueNumber).isPresent()) {
-            log.info("Writer session already exists for issue #{} in {}/{}", issueNumber, owner, repo);
+        if (!isAssignedToThisBot(payload)) {
+            log.debug("Ignoring writer assignment for issue #{} because assignee does not match bot '{}'",
+                    issueNumber, botUsername);
             return;
         }
 
-        AgentSession session = sessionService.createSession(owner, repo, issueNumber, issueTitle);
+        Optional<AgentSession> existingSession = sessionService.getSessionByIssue(owner, repo, issueNumber);
+        if (existingSession.isPresent()) {
+            if (existingSession.get().getSessionType() != AgentSession.AgentSessionType.WRITER) {
+                repositoryClient.postComment(owner, repo, issueNumber,
+                        "🤖 **AI Technical Writer**: A coding-agent session already exists for this issue. "
+                                + "Please clone the issue if you want the writer agent to draft a separate improved issue.");
+            }
+            log.info("Session already exists for issue #{} in {}/{}", issueNumber, owner, repo);
+            return;
+        }
+
+        String issueAuthor = findIssueAuthor(owner, repo, issueNumber);
+        AgentSession session = sessionService.createSession(owner, repo, issueNumber, issueTitle,
+                AgentSession.AgentSessionType.WRITER, issueAuthor);
+        Path workspaceDir = null;
         repositoryClient.postComment(owner, repo, issueNumber,
                 "🤖 **AI Technical Writer**: I've been assigned and will review this issue for completeness.");
-        runWriterLoop(session, owner, repo, issueNumber,
-                promptBuilder.buildInitialPrompt(issueNumber, issueTitle, issueBody));
+        try {
+            String baseBranch = issueRef != null && !issueRef.isBlank()
+                    ? issueRef : repositoryClient.getDefaultBranch(owner, repo);
+            WorkspaceResult wsResult = workspaceService.prepareWorkspace(
+                    owner, repo, baseBranch, repositoryClient.getCloneUrl(), repositoryClient.getToken());
+            if (!wsResult.success()) {
+                sessionService.setStatus(session, AgentSession.AgentSessionStatus.FAILED);
+                repositoryClient.postComment(owner, repo, issueNumber,
+                        "⚠️ **AI Technical Writer**: Failed to prepare read-only repository context: "
+                                + wsResult.error());
+                return;
+            }
+            workspaceDir = wsResult.workspacePath();
+            String treeContext = promptBuilder.buildTreeContext(
+                    repositoryClient.getRepositoryTree(owner, repo, baseBranch));
+            runWriterLoop(session, owner, repo, issueNumber, workspaceDir,
+                    promptBuilder.buildInitialPrompt(issueNumber, issueTitle, issueBody, treeContext));
+        } finally {
+            if (workspaceDir != null) {
+                workspaceService.cleanupWorkspace(workspaceDir);
+            }
+        }
     }
 
     public void handleIssueComment(WebhookPayload payload) {
@@ -75,6 +127,12 @@ public class WriterAgentService {
             return;
         }
         AgentSession session = sessionOpt.get();
+        if (session.getSessionType() != AgentSession.AgentSessionType.WRITER) {
+            repositoryClient.postComment(owner, repo, issueNumber,
+                    "🤖 **AI Technical Writer**: A coding-agent session already exists for this issue. "
+                            + "Please clone the issue if you want the writer agent to draft a separate improved issue.");
+            return;
+        }
         if (session.getStatus() == AgentSession.AgentSessionStatus.ISSUE_CREATED) {
             log.debug("Writer session already created an issue for #{}", issueNumber);
             return;
@@ -84,12 +142,30 @@ public class WriterAgentService {
                     "🤖 **AI Technical Writer**: I'm waiting for the original issue author to answer before proceeding.");
             return;
         }
-        runWriterLoop(session, owner, repo, issueNumber,
-                promptBuilder.buildContinuationPrompt(payload.getComment().getBody()));
+        Path workspaceDir = null;
+        try {
+            String baseBranch = repositoryClient.getDefaultBranch(owner, repo);
+            WorkspaceResult wsResult = workspaceService.prepareWorkspace(
+                    owner, repo, baseBranch, repositoryClient.getCloneUrl(), repositoryClient.getToken());
+            if (!wsResult.success()) {
+                sessionService.setStatus(session, AgentSession.AgentSessionStatus.FAILED);
+                repositoryClient.postComment(owner, repo, issueNumber,
+                        "⚠️ **AI Technical Writer**: Failed to prepare read-only repository context: "
+                                + wsResult.error());
+                return;
+            }
+            workspaceDir = wsResult.workspacePath();
+            runWriterLoop(session, owner, repo, issueNumber, workspaceDir,
+                    promptBuilder.buildContinuationPrompt(payload.getComment().getBody()));
+        } finally {
+            if (workspaceDir != null) {
+                workspaceService.cleanupWorkspace(workspaceDir);
+            }
+        }
     }
 
     private void runWriterLoop(AgentSession session, String owner, String repo,
-                               Long issueNumber, String userMessage) {
+                               Long issueNumber, Path workspaceDir, String userMessage) {
         String systemPrompt = resolveWriterSystemPrompt();
         String currentMessage = userMessage + "\n\n" + outputContract();
         List<AiMessage> history = new ArrayList<>(sessionService.toAiMessages(session));
@@ -100,11 +176,12 @@ public class WriterAgentService {
             sessionService.addMessage(session, "assistant", aiResponse);
             WriterPlan plan = responseParser.parse(aiResponse);
 
-            if (plan.hasToolRequests() && round < MAX_TOOL_ROUNDS) {
-                List<ToolResult> results = executeTools(owner, repo, issueNumber, plan.getRequestTools());
+            if (plan.hasContextRequests() && round < MAX_TOOL_ROUNDS) {
+                List<ImplementationPlan.ToolRequest> contextRequests = buildContextRequests(plan);
+                List<ToolResult> results = executeTools(owner, repo, issueNumber, workspaceDir, contextRequests);
                 history.add(AiMessage.builder().role("user").content(currentMessage).build());
                 history.add(AiMessage.builder().role("assistant").content(aiResponse).build());
-                currentMessage = promptBuilder.buildToolFeedback(plan.getRequestTools(), results);
+                currentMessage = promptBuilder.buildToolFeedback(contextRequests, results);
                 sessionService.addMessage(session, "user", currentMessage);
                 continue;
             }
@@ -118,6 +195,13 @@ public class WriterAgentService {
             Long createdIssueNumber = repositoryClient.createIssue(owner, repo,
                     "AI Created Issue: " + session.getIssueTitle(),
                     promptBuilder.buildIssueBody(issueNumber, plan));
+            if (createdIssueNumber == null) {
+                sessionService.setStatus(session, AgentSession.AgentSessionStatus.FAILED);
+                repositoryClient.postComment(owner, repo, issueNumber,
+                        "⚠️ **AI Technical Writer**: I drafted the improved issue, but creating it failed. "
+                                + "Please check the repository provider response and try again.");
+                return;
+            }
             sessionService.setGeneratedIssueNumber(session, createdIssueNumber);
             repositoryClient.postComment(owner, repo, issueNumber,
                     "🤖 **AI Technical Writer**: Created improved issue #" + createdIssueNumber
@@ -126,7 +210,27 @@ public class WriterAgentService {
         }
     }
 
+    private List<ImplementationPlan.ToolRequest> buildContextRequests(WriterPlan plan) {
+        List<ImplementationPlan.ToolRequest> requests = new ArrayList<>();
+        if (plan.getRequestTools() != null) {
+            requests.addAll(plan.getRequestTools());
+        }
+        if (plan.getRequestFiles() != null) {
+            int idx = 1;
+            for (String file : plan.getRequestFiles()) {
+                requests.add(ImplementationPlan.ToolRequest.builder()
+                        .id("writer-file-" + idx)
+                        .tool("cat")
+                        .args(List.of(file))
+                        .build());
+                idx++;
+            }
+        }
+        return requests;
+    }
+
     private List<ToolResult> executeTools(String owner, String repo, Long issueNumber,
+                                          Path workspaceDir,
                                           List<ImplementationPlan.ToolRequest> requests) {
         List<ToolResult> results = new ArrayList<>();
         for (ImplementationPlan.ToolRequest request : requests) {
@@ -134,16 +238,22 @@ public class WriterAgentService {
             List<String> args = request.getArgs() != null ? request.getArgs() : List.of();
             try {
                 if ("get-issue".equals(tool)) {
-                    Long requestedIssue = args.isEmpty() ? issueNumber : Long.parseLong(args.getFirst());
+                    Long requestedIssue = args.isEmpty() ? issueNumber : Long.parseLong(args.get(0));
                     results.add(new ToolResult(true, 0,
-                            repositoryClient.getIssueDetails(owner, repo, requestedIssue).toString(), ""));
+                            toJson(curateIssue(repositoryClient.getIssueDetails(owner, repo, requestedIssue))), ""));
                 } else if ("search-issues".equals(tool)) {
-                    String query = args.isEmpty() ? "" : args.getFirst();
+                    String query = args.isEmpty() ? "" : args.get(0);
                     results.add(new ToolResult(true, 0,
-                            repositoryClient.searchIssues(owner, repo, query).toString(), ""));
+                            toJson(repositoryClient.searchIssues(owner, repo, query).stream()
+                                    .limit(10)
+                                    .map(this::curateIssue)
+                                    .toList()), ""));
+                } else if (toolExecutionService.isContextTool(tool)) {
+                    results.add(toolExecutionService.executeContextTool(workspaceDir, tool, args));
                 } else {
                     results.add(new ToolResult(false, -1, "",
-                            "Writer tool '" + request.getTool() + "' is not available. Available tools: get-issue, search-issues"));
+                            "Writer tool '" + request.getTool() + "' is not available. Available tools: get-issue, "
+                                    + "search-issues, " + String.join(", ", toolExecutionService.getAvailableContextTools())));
                 }
             } catch (Exception e) {
                 results.add(new ToolResult(false, -1, "", e.getMessage()));
@@ -158,22 +268,42 @@ public class WriterAgentService {
         if (commenter == null || commenter.isBlank()) {
             return false;
         }
-        Map<String, Object> details = repositoryClient.getIssueDetails(owner, repo, issueNumber);
-        Object user = details.get("user");
-        if (user instanceof Map<?, ?> userMap) {
-            String identity = extractUserIdentity(userMap);
-            if (identity != null) {
-                return commenter.equalsIgnoreCase(identity);
-            }
+        Optional<AgentSession> sessionOpt = sessionService.getSessionByIssue(owner, repo, issueNumber);
+        if (sessionOpt.isPresent() && sessionOpt.get().getIssueAuthorUsername() != null) {
+            return commenter.equalsIgnoreCase(sessionOpt.get().getIssueAuthorUsername());
         }
-        Object author = details.get("author");
-        if (author instanceof Map<?, ?> authorMap) {
-            String identity = extractUserIdentity(authorMap);
-            if (identity != null) {
-                return commenter.equalsIgnoreCase(identity);
-            }
+        String issueAuthor = findIssueAuthor(owner, repo, issueNumber);
+        return issueAuthor != null && commenter.equalsIgnoreCase(issueAuthor);
+    }
+
+    private boolean isAssignedToThisBot(WebhookPayload payload) {
+        if (botUsername == null || botUsername.isBlank() || payload.getIssue() == null) {
+            return false;
+        }
+        if (payload.getIssue().getAssignee() != null
+                && botUsername.equalsIgnoreCase(payload.getIssue().getAssignee().getLogin())) {
+            return true;
+        }
+        if (payload.getIssue().getAssignees() != null) {
+            return payload.getIssue().getAssignees().stream()
+                    .anyMatch(assignee -> assignee != null
+                            && botUsername.equalsIgnoreCase(assignee.getLogin()));
         }
         return false;
+    }
+
+    private String findIssueAuthor(String owner, String repo, Long issueNumber) {
+        Map<String, Object> details = repositoryClient.getIssueDetails(owner, repo, issueNumber);
+        for (String key : List.of("user", "author")) {
+            Object value = details.get(key);
+            if (value instanceof Map<?, ?> userMap) {
+                String identity = extractUserIdentity(userMap);
+                if (identity != null) {
+                    return identity;
+                }
+            }
+        }
+        return null;
     }
 
     private String extractUserIdentity(Map<?, ?> userMap) {
@@ -184,6 +314,44 @@ public class WriterAgentService {
             }
         }
         return null;
+    }
+
+    private Map<String, Object> curateIssue(Map<String, Object> issue) {
+        Map<String, Object> curated = new LinkedHashMap<>();
+        copyIfPresent(issue, curated, "number");
+        copyIfPresent(issue, curated, "title");
+        copyIfPresent(issue, curated, "body");
+        copyIfPresent(issue, curated, "state");
+        copyIfPresent(issue, curated, "url");
+        copyIfPresent(issue, curated, "html_url");
+        copyUser(issue, curated, "user");
+        copyUser(issue, curated, "author");
+        return curated;
+    }
+
+    private void copyIfPresent(Map<String, Object> source, Map<String, Object> target, String key) {
+        Object value = source.get(key);
+        if (value != null) {
+            target.put(key, value);
+        }
+    }
+
+    private void copyUser(Map<String, Object> source, Map<String, Object> target, String key) {
+        Object value = source.get(key);
+        if (value instanceof Map<?, ?> userMap) {
+            String identity = extractUserIdentity(userMap);
+            if (identity != null) {
+                target.put(key, Map.of("login", identity));
+            }
+        }
+    }
+
+    private String toJson(Object value) {
+        try {
+            return objectMapper.writeValueAsString(value);
+        } catch (Exception e) {
+            return String.valueOf(value);
+        }
     }
 
     private String resolveWriterSystemPrompt() {
@@ -199,6 +367,7 @@ public class WriterAgentService {
                 Return only JSON in this shape:
                 {
                   "qualityAssessment": "short assessment",
+                  "requestFiles": ["path/to/file"],
                   "requestTools": [{"id": "uuid", "tool": "get-issue", "args": ["123"]}],
                   "clarifyingQuestions": ["question for the issue author"],
                   "revisedIssueDraft": "final markdown issue draft",
@@ -206,10 +375,21 @@ public class WriterAgentService {
                   "openQuestions": ["remaining non-critical question"],
                   "readyToCreate": true
                 }
-                Available writer tools: get-issue, search-issues.
-                Use requestTools only when existing issue content is needed before asking or finalizing.
+                Available writer tools: get-issue, search-issues, branch-switcher, rg, ripgrep, grep, find, cat, git-log, git-blame, tree.
+                You may use requestFiles or read-only repository requestTools when existing issue or repository context is needed before asking or finalizing.
+                Do not request repository write tools, file mutation tools, or build/validation tools.
                 If critical information is missing, set readyToCreate=false and include clarifyingQuestions.
                 If no critical questions remain, set readyToCreate=true and include revisedIssueDraft.
                 """;
+    }
+
+    private String normalizeBranchRef(String ref) {
+        if (ref == null || ref.isBlank()) {
+            return null;
+        }
+        if (ref.startsWith("refs/heads/")) {
+            return ref.substring("refs/heads/".length());
+        }
+        return ref;
     }
 }

@@ -103,6 +103,11 @@ public class IssueImplementationService {
         // Check if there's already a session for this issue
         Optional<AgentSession> existingSession = sessionService.getSessionByIssue(owner, repo, issueNumber);
         if (existingSession.isPresent()) {
+            if (existingSession.get().getSessionType() != AgentSession.AgentSessionType.CODING) {
+                repositoryClient.postComment(owner, repo, issueNumber,
+                        "🤖 **AI Agent**: A technical-writer session already exists for this issue. "
+                                + "Please clone the issue if you want the coding agent to implement it separately.");
+            }
             log.info("Session already exists for issue #{}, skipping initial implementation", issueNumber);
             return;
         }
@@ -433,6 +438,12 @@ public class IssueImplementationService {
         }
 
         AgentSession session = sessionOpt.get();
+        if (session.getSessionType() != AgentSession.AgentSessionType.CODING) {
+            repositoryClient.postComment(owner, repo, issueNumber,
+                    "🤖 **AI Agent**: This issue is currently owned by a technical-writer session. "
+                            + "Please clone the issue if you want the coding agent to implement it separately.");
+            return;
+        }
         Path workspaceDir = null;
 
         try {
