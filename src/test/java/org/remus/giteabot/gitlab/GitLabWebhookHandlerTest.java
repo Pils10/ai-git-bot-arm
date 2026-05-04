@@ -115,7 +115,7 @@ class GitLabWebhookHandlerTest {
     }
 
     @Test
-    void translateNotePayloadUsesTopLevelUserWhenGitLabOmitsNestedAuthorInfo() {
+    void translateNotePayload_usesTopLevelUser_whenGitLabOmitsNestedAuthorInfo() {
         Map<String, Object> attrs = new HashMap<>();
         attrs.put("id", 55);
         attrs.put("note", "@ai_bot repeat the code-review");

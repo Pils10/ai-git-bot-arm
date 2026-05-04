@@ -76,10 +76,10 @@ public class GitLabWebhookHandler {
         WebhookPayload webhookPayload = translateMergeRequestPayload(payload, attrs);
 
         boolean botUserEvent = botWebhookService.isBotUser(bot, webhookPayload);
-        boolean botReviewerRerequestEvent = isBotReviewerRerequestEvent(bot, payload, gitlabAction);
+        boolean botReviewerReRequestEvent = isBotReviewerReRequestEvent(bot, payload, gitlabAction);
 
         // Ignore events from the bot itself, except GitLab reviewer re-request events.
-        if (botUserEvent && !botReviewerRerequestEvent) {
+        if (botUserEvent && !botReviewerReRequestEvent) {
             log.debug("Ignoring GitLab event from bot's own user '{}'", bot.getUsername());
             return ResponseEntity.ok("ignored");
         }
@@ -108,7 +108,7 @@ public class GitLabWebhookHandler {
                 yield ResponseEntity.ok("session closed");
             }
             case "approved" -> {
-                if (botUserEvent && botReviewerRerequestEvent) {
+                if (botUserEvent && botReviewerReRequestEvent) {
                     webhookPayload.setAction("review_requested");
                     botWebhookService.reviewPullRequest(bot, webhookPayload);
                     yield ResponseEntity.ok("review triggered");
@@ -523,7 +523,7 @@ public class GitLabWebhookHandler {
         return inCurrent && !inPrevious;
     }
 
-    private boolean isBotReviewerRerequestEvent(Bot bot, Map<String, Object> payload, String gitlabAction) {
+    private boolean isBotReviewerReRequestEvent(Bot bot, Map<String, Object> payload, String gitlabAction) {
         return "approved".equals(gitlabAction)
                 && hasBotReviewer(bot, payload, null)
                 && !isApprovePostReviewActionConfigured(bot);
