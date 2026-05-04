@@ -268,14 +268,19 @@ public abstract class AbstractAiClient implements AiClient {
                                      int chunkNumber, int totalChunks, boolean isRetry,
                                      String systemPrompt, String effectiveModel,
                                      String additionalContext) {
-        return reviewSingleChunkInternal(prTitle, prBody, diffChunk, chunkNumber, totalChunks, isRetry,
-                systemPrompt, effectiveModel, additionalContext, null);
+        String userMessage = buildUserMessage(prTitle, prBody, diffChunk, chunkNumber, totalChunks,
+                isRetry, additionalContext);
+        return sendReviewRequest(systemPrompt, effectiveModel, maxTokens, userMessage);
     }
 
     String reviewSingleChunkInternal(String prTitle, String prBody, String diffChunk,
                                      int chunkNumber, int totalChunks, boolean isRetry,
                                      String systemPrompt, String effectiveModel,
                                      String additionalContext, McpConfigurationData mcpConfiguration) {
+        if (mcpConfiguration == null) {
+            return reviewSingleChunkInternal(prTitle, prBody, diffChunk, chunkNumber, totalChunks, isRetry,
+                    systemPrompt, effectiveModel, additionalContext);
+        }
         String userMessage = buildUserMessage(prTitle, prBody, diffChunk, chunkNumber, totalChunks,
                 isRetry, additionalContext);
         return sendReviewRequest(systemPrompt, effectiveModel, maxTokens, userMessage, mcpConfiguration);

@@ -84,9 +84,7 @@ public class McpConfigurationService {
             return false;
         }
         if (node.isObject()) {
-            var fields = node.fields();
-            while (fields.hasNext()) {
-                var field = fields.next();
+            for (var field : node.properties()) {
                 if (("transport".equalsIgnoreCase(field.getKey()) || "type".equalsIgnoreCase(field.getKey()))
                         && field.getValue().isTextual()
                         && "stdio".equalsIgnoreCase(field.getValue().asText())) {
@@ -122,9 +120,8 @@ public class McpConfigurationService {
                     || value.startsWith("sse://");
         }
         if (node.isObject()) {
-            var fields = node.fields();
-            while (fields.hasNext()) {
-                if (containsRemoteEndpoint(fields.next().getValue())) {
+            for (var field : node.properties()) {
+                if (containsRemoteEndpoint(field.getValue())) {
                     return true;
                 }
             }
