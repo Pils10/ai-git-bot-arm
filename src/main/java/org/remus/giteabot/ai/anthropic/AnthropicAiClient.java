@@ -40,10 +40,10 @@ public class AnthropicAiClient extends AbstractAiClient {
                 .system(systemPrompt)
                 .messages(List.of(
                         AnthropicRequest.Message.builder()
-                                 .role("user")
-                                 .content(userMessage)
-                                 .build()
-                 ))
+                                .role("user")
+                                .content(userMessage)
+                                .build()
+                ))
                 .mcpServers(McpConfigurationMapper.toMcpServers(mcpConfiguration, "Anthropic"))
                 .build();
 
