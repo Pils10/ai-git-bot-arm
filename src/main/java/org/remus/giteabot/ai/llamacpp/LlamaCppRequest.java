@@ -88,6 +88,7 @@ public class LlamaCppRequest {
     @JsonProperty("cache_prompt")
     private Boolean cachePrompt;
 
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     @JsonProperty("mcp_servers")
     private List<JsonNode> mcpServers;
 }
