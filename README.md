@@ -30,7 +30,7 @@ AI-Git-Bot is a lightweight, self-hostable **gateway application** that connects
 
 AI-Git-Bot unites two worlds:
 
-- **As a Bot** it automatically reacts to pull requests, answers questions in comments, and delivers context-aware inline reviews — like a reliable code-review partner that never sleeps.
+- **As a Bot** it reacts when it is requested as reviewer, answers questions in comments, and delivers context-aware inline reviews — like a reliable code-review partner that never sleeps.
 - **As an Agent** it autonomously takes on entire issues in two ways: a **coding agent** implements the change and opens a pull request, while a **writer agent** improves vague issues into structured, implementation-ready follow-up issues.
 
 > More than a bot. More than an agent. **The intelligent gateway for your entire code review and implementation workflow.**
@@ -83,9 +83,22 @@ graph LR
 
 ## Features
 
-### 🔍 Automatic PR Code Reviews
+### ✅ Why teams use it
 
-When a pull request is opened or updated, the bot automatically reviews the diff and posts feedback as a review comment. Large diffs are intelligently split into chunks with automatic retry on token limits.
+| Capability | What it does | Practical benefit |
+|---|---|---|
+| **Reviewer-triggered PR reviews** | Reviews pull requests when the bot is assigned or re-requested as reviewer | Keeps AI feedback intentional and avoids review noise on every push |
+| **Interactive PR conversations** | Answers `@bot` questions in PR and inline review comments with session history | Lets teams ask follow-up questions without leaving the review thread |
+| **Coding agent** | Implements assigned issues in a workspace, validates changes, and opens a PR | Turns implementation-ready issues into reviewable pull requests faster |
+| **Writer agent** | Rewrites vague issues into clearer, testable follow-up issues | Improves issue quality before engineering time is spent on the wrong problem |
+| **Reusable system prompts** | Separates review, coding-agent, and writer-agent prompts into named entries | Makes personas and standards reusable across many bots and repositories |
+| **Gateway architecture** | Connects any supported Git platform with any supported AI provider | Centralizes setup, credentials, governance, and monitoring in one place |
+
+### 🔍 Reviewer-Triggered PR Code Reviews
+
+When a pull request is opened **with the bot already assigned as reviewer**, or the bot is later **added/re-requested as reviewer**, the bot reviews the diff and posts feedback as a review comment. Large diffs are intelligently split into chunks with automatic retry on token limits.
+
+**Benefit:** teams stay in control of when AI review runs, while still getting deep review coverage on demand.
 
 <details>
 <summary>📸 Screenshots: Code reviews across platforms</summary>
@@ -108,17 +121,23 @@ When a pull request is opened or updated, the bot automatically reviews the diff
 
 Mention the bot (e.g. `@ai_bot`) in any PR comment to ask questions or request additional analysis. The bot acknowledges with 👀 and responds using the full conversation history.
 
+**Benefit:** review discussions stay in the PR instead of moving to chat or ad-hoc side channels.
+
 <img src="doc/screenshots/gitea/screenshot_code_review_with_comment.png" alt="Code Review with Comment" width="600"/>
 
 ### 📝 Inline Review Comment Responses
 
 Mention the bot in an inline review comment on a specific code line. The bot includes the file context and diff hunk when generating its answer and replies directly inline.
 
+**Benefit:** developers get code-local explanations and follow-up analysis exactly where the question came up.
+
 <img src="doc/screenshots/gitea/screenshot_code_review_with_inline_comment.png" alt="Code Review with Inline Comment" width="600"/>
 
 ### 🤖 Autonomous Issue Implementation Agent
 
 Assign the bot to an issue — it analyzes the task, reads the source code, generates an implementation, validates with build tools, and creates a finished pull request. Fully autonomous.
+
+**Benefit:** implementation-ready issues can move from backlog item to reviewable PR with much less manual orchestration.
 
 <details>
 <summary>📸 Screenshots: Agent across platforms</summary>
@@ -136,6 +155,8 @@ See the [Agent Documentation](doc/AGENT.md) for details.
 ### ✍️ Technical Writer Agent for Better Issues
 
 Assign a **Writer bot** to an issue when you want the bot to improve the problem statement instead of changing code. The writer agent can inspect related issues and explore the repository in a **read-only workspace** to understand naming, affected components, and constraints before it drafts a better issue.
+
+**Benefit:** teams catch missing acceptance criteria, hidden assumptions, and unclear scope before coding starts.
 
 Typical writer-bot use cases:
 
@@ -156,12 +177,14 @@ All configuration is managed through a **web-based UI** — no environment varia
 - Create multiple **Bots**, each with its own webhook URL, AI provider, and system prompt
 - Dashboard with statistics and monitoring
 
+**Benefit:** operations teams can standardize setup once instead of hand-configuring secrets and prompts per repository.
+
 ### 🔌 Supported AI Providers
 
 | Provider | Default API URL | Suggested Models |
 |----------|-----------------|------------------|
-| **Anthropic** | `https://api.anthropic.com` | claude-opus-4-6, claude-sonnet-4-6, claude-haiku-4-5-20251001 |
-| **OpenAI** | `https://api.openai.com` | gpt-5.4, gpt-5.3-codex, gpt-5.1-codex-max, gpt-5-codex |
+| **Anthropic** | `https://api.anthropic.com` | claude-opus-4-7, claude-sonnet-4-6, claude-haiku-4-5-20251001 |
+| **OpenAI** | `https://api.openai.com` | gpt-5.5, gpt-5.4, gpt-5.4-mini, gpt-5.3-codex |
 | **Ollama** | `http://localhost:11434` | User-configured local models |
 | **llama.cpp** | `http://localhost:8081` | User-configured GGUF models |
 
@@ -184,7 +207,7 @@ All configuration is managed through a **web-based UI** — no environment varia
 
 ## Docker
 
-The bot is available as a Docker image on [Docker Hub](https://hub.docker.com/r/tmseidel/anthropic-gitea-bot).
+The bot is available as a Docker image on [Docker Hub](https://hub.docker.com/r/tmseidel/ai-git-bot).
 
 ```yaml
 services:

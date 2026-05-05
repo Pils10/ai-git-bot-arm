@@ -11,7 +11,7 @@ AI-Git-Bot is a lightweight, self-hostable **Gateway application** for AI-powere
 - **Multi-Bot Support** — Create multiple bots with different AI providers, prompts, and personas
 - **Multiple Git Providers** — Gitea, GitHub, GitHub Enterprise, GitLab, and Bitbucket Cloud support
 - **Multiple AI Providers** — Anthropic, OpenAI, Ollama, and llama.cpp support
-- **Automatic PR Reviews** — Reviews diffs when Pull Requests are opened or updated
+- **Reviewer-Triggered PR Reviews** — Reviews diffs when the bot is assigned or re-requested as reviewer
 - **Interactive Bot Commands** — Mention the bot in PR comments to ask questions
 - **Inline Review Comments** — Context-aware answers to code-level review comments
 - **Coding Agent** — Assign a coding bot to an issue for autonomous code generation and PR creation
@@ -41,7 +41,7 @@ Then:
 
 Use coding bots for:
 
-- automatic pull-request reviews
+- reviewer-triggered pull-request reviews
 - PR comment conversations
 - inline review replies
 - autonomous issue implementation with feature branch + pull request output
@@ -99,8 +99,8 @@ volumes:
 
 | Provider | Default API URL | Suggested Models |
 |----------|-----------------|------------------|
-| **Anthropic** | `https://api.anthropic.com` | claude-opus-4-6, claude-sonnet-4-6, claude-haiku-4-5-20251001 |
-| **OpenAI** | `https://api.openai.com` | gpt-5.4, gpt-5.3-codex, gpt-5.1-codex-max, gpt-5-codex |
+| **Anthropic** | `https://api.anthropic.com` | claude-opus-4-7, claude-sonnet-4-6, claude-haiku-4-5-20251001 |
+| **OpenAI** | `https://api.openai.com` | gpt-5.5, gpt-5.4, gpt-5.4-mini, gpt-5.3-codex |
 | **Ollama** | `http://localhost:11434` | User-configured local models |
 | **llama.cpp** | `http://localhost:8081` | User-configured GGUF models |
 
@@ -153,7 +153,7 @@ Each bot gets a unique webhook URL displayed in the web UI. The same URL format 
 
 | Path | Description |
 |------|-------------|
-| `/app/prompts` | System prompt templates (optional, mount read-only) |
+| `/app/prompts` | Bundled prompt seed files used to initialize default system prompt entries (optional, mount read-only) |
 
 ## Health Check
 
