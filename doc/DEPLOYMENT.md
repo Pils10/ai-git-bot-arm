@@ -87,7 +87,7 @@ volumes:
 
 ### Agent Configuration (Optional)
 
-The issue implementation agent is **enabled per-bot** via the web UI. These environment variables configure global agent behavior:
+The **coding agent** is enabled per coding bot via the web UI. Writer workflows are selected separately by choosing **Bot Type = Writer bot**. These environment variables configure global coding-agent behavior:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -118,7 +118,8 @@ All AI provider and Git configuration is managed through the web interface:
 3. **Bots**: Create bots that combine an AI integration with a Git integration
    - Each bot gets a unique webhook URL
    - Select a system prompt entry per bot
-   - Enable/disable agent feature per bot
+   - Enable/disable coding-agent issue implementation per coding bot
+   - Choose **Writer bot** when you want issue drafting instead of code changes
 
 ## System Prompts
 

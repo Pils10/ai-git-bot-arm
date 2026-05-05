@@ -91,7 +91,7 @@ Code reviews are explicit-request only: pushes to an existing pull request do no
 1. In the bot's web UI, go to **Bots**
 2. Click on your bot (or create one if you haven't)
 3. The **Webhook URL** is displayed at the top of the edit form
-4. Copy this URL (e.g., `http://your-bot-server:8080/api/github-webhook/abc123-def456-...`)
+4. Copy this URL (e.g., `http://your-bot-server:8080/api/webhook/abc123-def456-...`)
 
 ### Repository-Level Webhook
 

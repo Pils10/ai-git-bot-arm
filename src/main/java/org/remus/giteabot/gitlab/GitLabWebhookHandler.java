@@ -514,7 +514,12 @@ public class GitLabWebhookHandler {
             if (!(changes.get("reviewers") instanceof Map<?, ?> reviewersChange)) {
                 return false;
             }
+            List<Map<String, Object>> previousReviewers =
+                    (List<Map<String, Object>>) reviewersChange.get("previous");
             currentReviewers = (List<Map<String, Object>>) reviewersChange.get("current");
+            // Trigger review only if the bot was newly added (present in current but not in previous).
+            return containsGitLabUser(currentReviewers, bot.getUsername())
+                    && !containsGitLabUser(previousReviewers, bot.getUsername());
         }
         return containsGitLabUser(currentReviewers, bot.getUsername());
     }

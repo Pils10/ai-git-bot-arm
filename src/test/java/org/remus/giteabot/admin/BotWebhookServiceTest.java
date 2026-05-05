@@ -616,8 +616,8 @@ class BotWebhookServiceTest {
             prCommentPayload = buildPrCommentPayload(OWNER, REPO, PR_NUMBER, COMMENT_ID,
                     "@claude_bot please do something");
             // Both factories return the shared repository client mock
-            when(giteaClientFactory.getApiClient(any())).thenReturn(repositoryApiClient);
-            when(aiClientFactory.getClient(any())).thenReturn(null); // not reached in these tests
+            lenient().when(giteaClientFactory.getApiClient(any())).thenReturn(repositoryApiClient);
+            lenient().when(aiClientFactory.getClient(any())).thenReturn(null); // not reached in these tests
         }
 
         /** For tests where the agent path is taken, stub workspace to fail quickly. */
@@ -715,6 +715,51 @@ class BotWebhookServiceTest {
 
             // Short-circuit: PR-number lookup must not be called
             verify(agentSessionService, never()).getSessionByPr(any(), any(), any());
+        }
+
+        @Test
+        void agentSessionExists_humanCommentOnBotCreatedPr_routesToAgent() {
+            // Bot created the PR (PR author is the bot username), human follows up with a comment.
+            // The author check must NOT block this because the coding agent IS the PR author.
+            WebhookPayload botAuthoredPrPayload = buildPrCommentPayload(OWNER, REPO, PR_NUMBER, COMMENT_ID,
+                    "@claude_bot look at this");
+            // Set PR author to the bot's username
+            botAuthoredPrPayload.getPullRequest().setUser(owner("claude_bot"));
+            // Comment is from a human
+            botAuthoredPrPayload.getComment().getUser().setLogin("human_reviewer");
+            botAuthoredPrPayload.getSender().setLogin("human_reviewer");
+
+            AgentSession session = agentSession(OWNER, REPO, PR_NUMBER);
+            when(agentSessionService.getSessionByIssue(OWNER, REPO, PR_NUMBER))
+                    .thenReturn(Optional.of(session));
+            stubAgentPath(session);
+
+            botWebhookService.handlePrComment(createBot("bot", "claude_bot", true), botAuthoredPrPayload);
+
+            // Must route to the agent even though commenter != PR author
+            verify(agentSessionService).setStatus(any(AgentSession.class),
+                    eq(AgentSession.AgentSessionStatus.UPDATING));
+            verify(sessionService, never()).getOrCreateSession(any(), any(), any(), any());
+        }
+
+        @Test
+        void noAgentSession_nonAuthorComment_isIgnored() {
+            // No agent session and commenter is NOT the PR author → code-review path rejects it.
+            WebhookPayload nonAuthorPayload = buildPrCommentPayload(OWNER, REPO, PR_NUMBER, COMMENT_ID,
+                    "@claude_bot please review");
+            nonAuthorPayload.getComment().getUser().setLogin("other_user");
+            nonAuthorPayload.getSender().setLogin("other_user");
+
+            when(agentSessionService.getSessionByIssue(OWNER, REPO, PR_NUMBER))
+                    .thenReturn(Optional.empty());
+            when(agentSessionService.getSessionByPr(OWNER, REPO, PR_NUMBER))
+                    .thenReturn(Optional.empty());
+
+            botWebhookService.handlePrComment(createBot("bot", "claude_bot", true), nonAuthorPayload);
+
+            // Non-author on code-review path → no command handled
+            verify(sessionService, never()).getOrCreateSession(any(), any(), any(), any());
+            verify(agentSessionService, never()).setStatus(any(), any());
         }
     }
 

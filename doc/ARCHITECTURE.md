@@ -30,7 +30,7 @@ graph LR
     Bot -- "Config & Sessions" --> DB
 ```
 
-The gateway sits between Git hosting platforms (Gitea, GitHub, GitLab, or Bitbucket) and configurable AI providers. When a pull request is opened or updated, the Git provider sends a webhook to the gateway. The gateway fetches the diff, sends it to the configured AI provider for review, and posts the review back as a PR comment. All configuration (AI integrations, Git integrations, bots) and conversation sessions are persisted in a database.
+The gateway sits between Git hosting platforms (Gitea, GitHub, GitLab, or Bitbucket) and configurable AI providers. When a pull request is opened with the bot as reviewer, or the bot is later added/re-requested as reviewer, the Git provider sends a webhook to the gateway. The gateway fetches the diff, sends it to the configured AI provider for review, and posts the review back as a PR comment. All configuration (AI integrations, Git integrations, bots) and conversation sessions are persisted in a database.
 
 The gateway also responds to inline review comments and submitted reviews containing bot mentions by fetching the relevant review data from the Git API and posting context-aware replies. In **agent mode**, it supports two issue-based workflows: a **coding agent** that implements issues and opens pull requests, and a **technical writer agent** that improves vague issues into structured, implementation-ready follow-up issues.
 
@@ -40,8 +40,8 @@ The gateway also responds to inline review comments and submitted reviews contai
 graph TD
     subgraph "Spring Boot Application"
         subgraph "Web Layer"
-            GiteaWebhookController["GiteaWebhookController<br/><i>Gitea webhook endpoints</i>"]
-            GitHubWebhookController["GitHubWebhookController<br/><i>GitHub webhook endpoints</i>"]
+            UnifiedWebhookController["UnifiedWebhookController<br/><i>Single webhook endpoint</i>"]
+            ProviderWebhookHandlers["Provider Webhook Handlers<br/><i>Gitea / GitHub / GitLab / Bitbucket translation</i>"]
             AdminControllers["Admin Controllers<br/><i>Dashboard, Bots, Integrations</i>"]
             SetupController["SetupController<br/><i>Initial setup</i>"]
         end
@@ -114,10 +114,9 @@ graph TD
         DB["Database<br/><i>PostgreSQL / H2</i>"]
     end
 
-    GiteaWebhookController --> BotService
-    GiteaWebhookController --> BotWebhookService
-    GitHubWebhookController --> BotService
-    GitHubWebhookController --> BotWebhookService
+    UnifiedWebhookController --> BotService
+    UnifiedWebhookController --> ProviderWebhookHandlers
+    ProviderWebhookHandlers --> BotWebhookService
     BotWebhookService --> AiClientFactory
     BotWebhookService --> RepoClientFactory
     BotWebhookService --> SessionService
@@ -180,10 +179,10 @@ Each AI provider implements `AiProviderMetadata` to define:
 AiProviderMetadata (interface)
  ├── AnthropicProviderMetadata
  │    └── Default URL: https://api.anthropic.com
- │    └── Models: claude-opus-4-6, claude-sonnet-4-6, claude-haiku-4-5-20251001
+ │    └── Models: claude-opus-4-7, claude-sonnet-4-6, claude-haiku-4-5-20251001
  ├── OpenAiProviderMetadata
  │    └── Default URL: https://api.openai.com
- │    └── Models: gpt-5.4, gpt-5.3-codex, gpt-5.1-codex-max, gpt-5-codex
+ │    └── Models: gpt-5.5, gpt-5.4, gpt-5.4-mini, gpt-5.3-codex
  ├── OllamaProviderMetadata
  │    └── Default URL: http://localhost:11434
  │    └── Models: (user-configured)
@@ -382,22 +381,19 @@ erDiagram
 
 ### Webhook Controllers
 
-#### GiteaWebhookController
+#### UnifiedWebhookController
 
-- **Package:** `org.remus.giteabot.gitea`
+- **Package:** `org.remus.giteabot.webhook`
 - **Endpoint:** `POST /api/webhook/{webhookSecret}`
-- Receives Gitea webhook payloads for pull request, issue comment, and review comment events
-- Looks up Bot by webhook secret
-- Routes events based on payload structure to `BotWebhookService`
+- Looks up the bot by webhook secret
+- Routes the raw payload to the provider-specific handler based on the bot's configured Git integration type
 
-#### GitHubWebhookController
+#### Provider Webhook Handlers
 
-- **Package:** `org.remus.giteabot.github`
-- **Endpoint:** `POST /api/github-webhook/{webhookSecret}`
-- Receives GitHub webhook payloads for pull request, issue comment, and review comment events
-- Looks up Bot by webhook secret
-- Converts GitHub payload format to common event model
-- Routes events to `BotWebhookService`
+- **Packages:** `org.remus.giteabot.{gitea,github,gitlab,bitbucket}`
+- Translate provider-specific webhook payloads into the common `WebhookPayload` model
+- Apply provider-specific trigger rules such as reviewer assignment/re-request behavior
+- Delegate normalized events to `BotWebhookService`
 
 ### BotWebhookService
 
@@ -409,7 +405,7 @@ erDiagram
   - `CODING` → `IssueImplementationService` (when `agentEnabled` is true)
   - `WRITER` → `WriterAgentService`
 - Handles:
-  - PR reviews (opened, synchronized)
+  - PR reviews when a provider-specific review trigger is detected (for example opened-with-reviewer or reviewer re-requested)
   - Bot commands (PR comments with mention)
   - Inline review comments
   - Review submitted events
@@ -579,7 +575,7 @@ flowchart TD
     G -- Yes --> H{Bot mentioned?}
     H -- No --> X
     H -- Yes --> I{Is PR?}
-    I -- Yes --> J["handleBotCommand()"]
+    I -- Yes --> J["handlePrComment() → resume PR session or handleBotCommand()"]
     I -- No --> K["handleIssueComment() → writer or coding issue flow"]
     G -- No --> L{Issue assigned to bot?}
     L -- Yes --> M["handleIssueAssigned() → writer or coding issue flow"]
@@ -589,7 +585,7 @@ flowchart TD
     O -- Yes --> P["handleReviewSubmitted()"]
     O -- No --> Q{action = closed?}
     Q -- Yes --> R["handlePrClosed()"]
-    Q -- No --> S{action = opened/synchronized?}
+    Q -- No --> S{review trigger event?}
     S -- Yes --> T["reviewPullRequest()"]
     S -- No --> X
 ```
@@ -614,7 +610,7 @@ graph LR
     subgraph "Docker Compose"
         subgraph "App Container"
             App["app.jar<br/>(Spring Boot)"]
-            Prompts["/app/prompts/<br/>Prompt templates"]
+            Prompts["/app/prompts/<br/>File-based prompt fallbacks"]
         end
         subgraph "DB Container"
             Postgres["PostgreSQL 17<br/>(Config & Sessions)"]
@@ -629,7 +625,7 @@ graph LR
 ```
 
 - All configuration (AI integrations, Git integrations, bots) is stored in the database
-- The `prompts/` directory contains prompt templates loaded at runtime
+- Default `system_prompts` rows are seeded by Flyway migration scripts (`V3__system_prompts.sql`, `V5__technical_writer_agent.sql`); the `prompts/` directory is only used by `PromptService` as a file-based fallback for legacy prompt overrides
 - PostgreSQL persists configuration and review sessions
 - Session data survives container restarts via the `pgdata` volume
 
