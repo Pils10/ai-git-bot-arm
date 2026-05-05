@@ -118,7 +118,7 @@ prompts/            # Bundled prompt seed files copied into the container image
 | `GET /bots` | Bot management |
 | `GET /ai-integrations` | AI integration management |
 | `GET /git-integrations` | Git integration management |
-| `GET /system-settings/system-prompts` | Reusable system prompt entry management |
+| `GET /system-settings` | Reusable system prompt entry management |
 | `GET /actuator/health` | Health check |
 | `GET /actuator/info` | Application info |
 
