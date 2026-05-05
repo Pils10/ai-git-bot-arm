@@ -11,7 +11,7 @@
 AI-Git-Bot is a lightweight, self-hostable **gateway application** that connects your Git platforms with AI providers. As a central hub it receives webhooks from **Gitea, GitHub, GitHub Enterprise, GitLab, and Bitbucket Cloud**, routes them to configurable AI providers, and writes the results back as code reviews, technical-writing issue drafts, comments, or even entire pull requests — fully automated.
 
 <p align="center">
-  <img src="doc/images/schema.png" alt="AI-Git-Bot Architecture Schema" width="800"/>
+  <img src="doc/images/ai-git-bot-diagram.svg" alt="AI-Git-Bot Architecture Schema" width="800"/>
 </p>
 
 ## 🎯 Who is AI-Git-Bot for?
