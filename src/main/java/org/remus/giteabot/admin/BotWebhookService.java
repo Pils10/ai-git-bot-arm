@@ -117,14 +117,12 @@ public class BotWebhookService {
      * Handles a comment on a PR discussion thread.
      * <p>
      * Routes to the agent when an agent session exists for the PR (i.e. the PR was created by the
-     * agent and can be continued), or falls back to the code-review handler for manually created PRs.
+     * agent and can be continued).  The agent-session path intentionally skips the PR-author check
+     * because the coding agent is the PR author; human follow-up comments must still reach the agent.
+     * For manually created PRs (no active session), only the PR author may issue commands.
      */
     @Async
     public void handlePrComment(Bot bot, WebhookPayload payload) {
-        if (!isPullRequestAuthor(payload)) {
-            log.debug("[Bot '{}'] Ignoring pull request comment from non-author", bot.getName());
-            return;
-        }
         if (bot.getBotType() == BotType.WRITER) {
             log.debug("[Bot '{}'] Writer bot ignores pull request comment", bot.getName());
             return;
@@ -139,6 +137,8 @@ public class BotWebhookService {
                 || agentSessionService.getSessionByPr(owner, repo, prNumber).isPresent();
 
         if (hasAgentSession && bot.isAgentEnabled()) {
+            // Agent-session path: no author restriction – the coding agent created the PR,
+            // so any human commenter should be able to continue the implementation workflow.
             log.debug("[Bot '{}'] Agent session found for PR #{}, routing to agent", bot.getName(), prNumber);
             try {
                 createIssueImplementationService(bot).handleIssueComment(payload);
@@ -147,6 +147,11 @@ public class BotWebhookService {
                 botService.recordError(bot, e.getMessage());
             }
         } else {
+            // Code-review path: only the PR author may issue bot commands.
+            if (!isPullRequestAuthor(payload)) {
+                log.debug("[Bot '{}'] Ignoring pull request comment from non-author", bot.getName());
+                return;
+            }
             log.debug("[Bot '{}'] No agent session for PR #{}, routing to code-review handler",
                     bot.getName(), prNumber);
             try {
