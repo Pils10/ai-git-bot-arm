@@ -29,8 +29,9 @@
                             <select class="form-select" id="providerType" th:field="*{providerType}" required>
                                 <option value="">Select a provider...</option>
                                 <option th:each="type : ${providerTypes}"
-                                        th:value="${type}" th:text="${type}"></option>
+                                        th:value="${type}" th:text="${providerDisplayNames.get(type)}"></option>
                             </select>
+                            <div class="form-text" id="providerHint"></div>
                         </div>
 
                         <div class="col-md-6">
@@ -42,7 +43,8 @@
                         <div class="col-md-6">
                             <label for="apiKey" class="form-label">API Key</label>
                             <input type="password" class="form-control" id="apiKey" name="apiKey"
-                                   placeholder="Enter API key"/>
+                                    placeholder="Enter API key"/>
+                            <div class="form-text" id="apiKeyHint"></div>
                             <div th:if="${integration.id != null}" class="form-text">
                                 Leave blank to keep current API key.
                             </div>
@@ -106,13 +108,17 @@
         <script th:inline="javascript">
             /*<![CDATA[*/
             const defaultApiUrls = /*[[${defaultApiUrls}]]*/ {};
+            const apiKeyRequirements = /*[[${apiKeyRequirements}]]*/ {};
             const suggestedModels = /*[[${suggestedModels}]]*/ {};
             const isEditMode = /*[[${integration.id != null}]]*/ false;
 
             document.addEventListener('DOMContentLoaded', function() {
                 const providerSelect = document.getElementById('providerType');
+                const providerHint = document.getElementById('providerHint');
                 const apiUrlInput = document.getElementById('apiUrl');
                 const apiUrlHint = document.getElementById('apiUrlHint');
+                const apiKeyInput = document.getElementById('apiKey');
+                const apiKeyHint = document.getElementById('apiKeyHint');
                 const modelInput = document.getElementById('model');
                 const modelDropdownBtn = document.getElementById('modelDropdownBtn');
                 const modelDropdownMenu = document.getElementById('modelDropdownMenu');
@@ -120,6 +126,12 @@
 
                 function updateProviderDefaults() {
                     const provider = providerSelect.value;
+
+                    if (provider === 'google') {
+                        providerHint.textContent = 'Google AI uses the Gemini REST API. Use a Gemini API key from Google AI Studio.';
+                    } else {
+                        providerHint.textContent = '';
+                    }
 
                     // Update API URL hint and set default if empty (only for new integrations)
                     if (defaultApiUrls[provider]) {
@@ -129,6 +141,16 @@
                         }
                     } else {
                         apiUrlHint.textContent = '';
+                    }
+
+                    const requiresApiKey = apiKeyRequirements[provider] === true;
+                    apiKeyInput.required = requiresApiKey && !isEditMode;
+                    if (requiresApiKey) {
+                        apiKeyHint.textContent = isEditMode
+                            ? 'API key required. Leave blank only to keep the existing encrypted key.'
+                            : 'API key required. It will be stored encrypted at rest.';
+                    } else {
+                        apiKeyHint.textContent = 'API key not required for this provider.';
                     }
 
                     // Update model dropdown

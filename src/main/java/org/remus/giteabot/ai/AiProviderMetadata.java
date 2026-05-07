@@ -18,6 +18,13 @@ public interface AiProviderMetadata {
     String getProviderType();
 
     /**
+     * Returns the human-readable provider name shown in the admin UI.
+     */
+    default String getDisplayName() {
+        return getProviderType();
+    }
+
+    /**
      * Returns the default API URL for this provider.
      */
     String getDefaultApiUrl();
@@ -51,4 +58,3 @@ public interface AiProviderMetadata {
      */
     AiClient createClient(RestClient restClient, AiIntegration integration);
 }
-

@@ -2,7 +2,7 @@
 
 ## Overview
 
-AI-Git-Bot is a **Gateway application** that provides a web-based management interface for creating and managing AI-powered code review bots. Each bot connects an AI provider (Anthropic, OpenAI, Ollama, or llama.cpp) with a Git provider (Gitea, GitHub, GitHub Enterprise, GitLab, or Bitbucket Cloud) and has its own unique webhook URL. The Gateway architecture allows you to manage multiple bots with different configurations across different Git platforms — all from a single dashboard.
+AI-Git-Bot is a **Gateway application** that provides a web-based management interface for creating and managing AI-powered code review bots. Each bot connects an AI provider (Anthropic, OpenAI, Google AI, Ollama, or llama.cpp) with a Git provider (Gitea, GitHub, GitHub Enterprise, GitLab, or Bitbucket Cloud) and has its own unique webhook URL. The Gateway architecture allows you to manage multiple bots with different configurations across different Git platforms — all from a single dashboard.
 
 Besides classic pull-request review bots, AI-Git-Bot also supports **issue-based agent workflows**:
 
@@ -50,6 +50,7 @@ AI Integrations define connections to AI providers. Navigate to **AI Integration
      |----------|-----------------|------------------|
      | `anthropic` | `https://api.anthropic.com` | claude-opus-4-7, claude-sonnet-4-6, claude-haiku-4-5-20251001 |
      | `openai` | `https://api.openai.com` | gpt-5.5, gpt-5.4, gpt-5.4-mini, gpt-5.3-codex |
+     | `google` | `https://generativelanguage.googleapis.com` | gemini-2.5-pro, gemini-2.5-flash, gemini-2.0-flash |
      | `ollama` | `http://localhost:11434` | *(user-configured)* |
      | `llamacpp` | `http://localhost:8081` | *(user-configured)* |
      
@@ -74,6 +75,25 @@ AI Integrations define connections to AI providers. Navigate to **AI Integration
 - Requires an API key
 - Compatible with OpenAI API proxies by changing the API URL
 - Suggested models: gpt-5.5, gpt-5.4, gpt-5.4-mini, gpt-5.3-codex
+
+#### Google AI
+- Requires a Gemini API key from Google AI Studio; the key is stored encrypted at rest
+- Uses the Gemini REST API at `https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent`
+- Suggested models: gemini-2.5-pro, gemini-2.5-flash, gemini-2.0-flash
+- Enter model names without the `models/` prefix (for example, `gemini-2.5-flash`) or with the prefix if copied from Google documentation
+- Leave **API Version** blank; the integration currently targets the Gemini REST `v1beta` API surface
+- Invalid API keys or model names are returned as Google AI request failures with the provider's error message; API keys are sent in the `x-goog-api-key` header and are not included in logged URLs
+
+To create a Google AI integration in the admin UI:
+
+| Field | What to enter |
+|-------|---------------|
+| **Provider Type** | Select `gemini`. The saved provider type is `google`. |
+| **API URL** | Keep the default `https://generativelanguage.googleapis.com` unless you are using a compatible proxy. |
+| **API Key** | Enter your Gemini API key from Google AI Studio. |
+| **API Version** | Leave blank. |
+| **Model** | Select a suggested Gemini model or enter the exact Gemini model ID. |
+| **Max Tokens** and chunk limits | Start with the defaults, then reduce chunk limits if the selected model reports context/token-limit errors. |
 
 ##### OpenAI-Compatible APIs
 

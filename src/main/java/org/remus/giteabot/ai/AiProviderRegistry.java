@@ -57,6 +57,17 @@ public class AiProviderRegistry {
     }
 
     /**
+     * Returns a map of provider type to human-readable display name.
+     */
+    public Map<String, String> getDisplayNames() {
+        Map<String, String> names = new LinkedHashMap<>();
+        for (AiProviderMetadata provider : providersByType.values()) {
+            names.put(provider.getProviderType(), provider.getDisplayName());
+        }
+        return names;
+    }
+
+    /**
      * Returns a map of provider type to suggested models.
      */
     public Map<String, List<String>> getSuggestedModels() {
@@ -68,10 +79,20 @@ public class AiProviderRegistry {
     }
 
     /**
+     * Returns a map of provider type to whether an API key is required.
+     */
+    public Map<String, Boolean> getApiKeyRequirements() {
+        Map<String, Boolean> requirements = new LinkedHashMap<>();
+        for (AiProviderMetadata provider : providersByType.values()) {
+            requirements.put(provider.getProviderType(), provider.requiresApiKey());
+        }
+        return requirements;
+    }
+
+    /**
      * Returns all registered providers.
      */
     public List<AiProviderMetadata> getAllProviders() {
         return List.copyOf(providersByType.values());
     }
 }
-
