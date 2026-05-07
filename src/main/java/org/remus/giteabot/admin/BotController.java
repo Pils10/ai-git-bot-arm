@@ -3,14 +3,17 @@ package org.remus.giteabot.admin;
 import lombok.extern.slf4j.Slf4j;
 import org.remus.giteabot.systemsettings.McpConfiguration;
 import org.remus.giteabot.systemsettings.McpConfigurationService;
+import org.remus.giteabot.systemsettings.McpToolSelectionService;
 import org.remus.giteabot.systemsettings.SystemPrompt;
 import org.remus.giteabot.systemsettings.SystemPromptService;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 import java.util.List;
+import java.util.Map;
 
 @Slf4j
 @Controller
@@ -22,17 +25,20 @@ public class BotController {
     private final GitIntegrationService gitIntegrationService;
     private final SystemPromptService systemPromptService;
     private final McpConfigurationService mcpConfigurationService;
+    private final McpToolSelectionService mcpToolSelectionService;
 
     public BotController(BotService botService,
                          AiIntegrationService aiIntegrationService,
                          GitIntegrationService gitIntegrationService,
                          SystemPromptService systemPromptService,
-                         McpConfigurationService mcpConfigurationService) {
+                         McpConfigurationService mcpConfigurationService,
+                         McpToolSelectionService mcpToolSelectionService) {
         this.botService = botService;
         this.aiIntegrationService = aiIntegrationService;
         this.gitIntegrationService = gitIntegrationService;
         this.systemPromptService = systemPromptService;
         this.mcpConfigurationService = mcpConfigurationService;
+        this.mcpToolSelectionService = mcpToolSelectionService;
     }
 
     @GetMapping
@@ -122,5 +128,22 @@ public class BotController {
             redirectAttributes.addFlashAttribute("error", "Failed to delete: " + e.getMessage());
         }
         return "redirect:/bots";
+    }
+
+    @GetMapping("/mcp-configurations/{id}/selected-tools")
+    @ResponseBody
+    public ResponseEntity<List<Map<String, String>>> selectedMcpTools(@PathVariable Long id) {
+        if (mcpConfigurationService.findById(id).isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+        List<Map<String, String>> rows = mcpToolSelectionService.loadSelectedTools(id).stream()
+                .map(tool -> Map.of(
+                        "qualifiedName", tool.qualifiedName(),
+                        "serverName", tool.serverName(),
+                        "toolName", tool.toolName(),
+                        "title", tool.title() == null ? "" : tool.title(),
+                        "description", tool.description() == null ? "" : tool.description()))
+                .toList();
+        return ResponseEntity.ok(rows);
     }
 }

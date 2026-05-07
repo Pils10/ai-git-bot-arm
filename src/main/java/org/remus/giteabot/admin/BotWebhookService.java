@@ -16,6 +16,7 @@ import org.remus.giteabot.mcp.McpToolCatalog;
 import org.remus.giteabot.repository.RepositoryApiClient;
 import org.remus.giteabot.review.CodeReviewService;
 import org.remus.giteabot.session.SessionService;
+import org.remus.giteabot.systemsettings.McpToolSelectionService;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
@@ -46,6 +47,7 @@ public class BotWebhookService {
     private final WorkspaceService workspaceService;
     private final BotService botService;
     private final McpOrchestrationService mcpOrchestrationService;
+    private final McpToolSelectionService mcpToolSelectionService;
 
     public BotWebhookService(AiClientFactory aiClientFactory,
                              GiteaClientFactory giteaClientFactory,
@@ -57,7 +59,8 @@ public class BotWebhookService {
                              ToolExecutionService toolExecutionService,
                              WorkspaceService workspaceService,
                               BotService botService,
-                              McpOrchestrationService mcpOrchestrationService) {
+                              McpOrchestrationService mcpOrchestrationService,
+                              McpToolSelectionService mcpToolSelectionService) {
         this.aiClientFactory = aiClientFactory;
         this.giteaClientFactory = giteaClientFactory;
         this.promptService = promptService;
@@ -69,6 +72,7 @@ public class BotWebhookService {
         this.workspaceService = workspaceService;
         this.botService = botService;
         this.mcpOrchestrationService = mcpOrchestrationService;
+        this.mcpToolSelectionService = mcpToolSelectionService;
     }
 
     /**
@@ -360,7 +364,9 @@ public class BotWebhookService {
     private IssueImplementationService createIssueImplementationService(Bot bot) {
         AiClient aiClient = getAiClient(bot);
         RepositoryApiClient repoClient = giteaClientFactory.getApiClient(bot.getGitIntegration());
-        McpToolCatalog mcpToolCatalog = mcpOrchestrationService.discoverTools(bot.getMcpConfiguration());
+        McpToolCatalog mcpToolCatalog = mcpToolSelectionService.filterCatalogForPrompt(
+                bot.getMcpConfiguration(),
+                mcpOrchestrationService.discoverTools(bot.getMcpConfiguration()));
         if (bot.getSystemPrompt() == null) {
             throw new IllegalStateException("Bot must have a system prompt assigned");
         }
@@ -373,7 +379,9 @@ public class BotWebhookService {
     private WriterAgentService createWriterAgentService(Bot bot) {
         AiClient aiClient = getAiClient(bot);
         RepositoryApiClient repoClient = giteaClientFactory.getApiClient(bot.getGitIntegration());
-        McpToolCatalog mcpToolCatalog = mcpOrchestrationService.discoverTools(bot.getMcpConfiguration());
+        McpToolCatalog mcpToolCatalog = mcpToolSelectionService.filterCatalogForPrompt(
+                bot.getMcpConfiguration(),
+                mcpOrchestrationService.discoverTools(bot.getMcpConfiguration()));
         if (bot.getSystemPrompt() == null) {
             throw new IllegalStateException("Bot must have a system prompt assigned");
         }

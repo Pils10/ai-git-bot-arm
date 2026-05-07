@@ -2,9 +2,13 @@ package org.remus.giteabot.systemsettings;
 
 import jakarta.persistence.*;
 import lombok.Data;
+import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
+import lombok.ToString;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 
 @Data
 @NoArgsConstructor
@@ -27,6 +31,11 @@ public class McpConfiguration {
 
     @Column(nullable = false)
     private Instant updatedAt;
+
+    @OneToMany(mappedBy = "mcpConfiguration", cascade = CascadeType.ALL, orphanRemoval = true)
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
+    private List<McpSelectedTool> selectedTools = new ArrayList<>();
 
     @PrePersist
     void prePersist() {

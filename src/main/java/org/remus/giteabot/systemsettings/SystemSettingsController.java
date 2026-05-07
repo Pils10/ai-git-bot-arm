@@ -7,6 +7,7 @@ import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
+import java.util.List;
 import java.util.Map;
 
 @Slf4j
@@ -16,11 +17,14 @@ public class SystemSettingsController {
 
     private final SystemPromptService systemPromptService;
     private final McpConfigurationService mcpConfigurationService;
+    private final McpToolSelectionService mcpToolSelectionService;
 
     public SystemSettingsController(SystemPromptService systemPromptService,
-                                    McpConfigurationService mcpConfigurationService) {
+                                    McpConfigurationService mcpConfigurationService,
+                                    McpToolSelectionService mcpToolSelectionService) {
         this.systemPromptService = systemPromptService;
         this.mcpConfigurationService = mcpConfigurationService;
+        this.mcpToolSelectionService = mcpToolSelectionService;
     }
 
     @GetMapping
@@ -56,8 +60,10 @@ public class SystemSettingsController {
     public String saveMcp(@ModelAttribute McpConfiguration mcpConfiguration, Model model,
                           RedirectAttributes redirectAttributes) {
         try {
-            mcpConfigurationService.save(mcpConfiguration);
-            redirectAttributes.addFlashAttribute("success", "MCP configuration saved successfully");
+            McpConfiguration saved = mcpConfigurationService.save(mcpConfiguration);
+            redirectAttributes.addFlashAttribute("success",
+                    "MCP configuration saved. Please select which MCP tools are allowed in prompts.");
+            return "redirect:/system-settings/mcp-configurations/" + saved.getId() + "/tools";
         } catch (Exception e) {
             log.error("Failed to save MCP configuration", e);
             model.addAttribute("error", "Failed to save: " + e.getMessage());
@@ -65,7 +71,38 @@ public class SystemSettingsController {
             model.addAttribute("activeNav", "system-settings");
             return "system-settings/mcp-form";
         }
-        return "redirect:/system-settings";
+    }
+
+    @GetMapping("/mcp-configurations/{id}/tools")
+    public String mcpToolSelection(@PathVariable Long id, Model model, RedirectAttributes redirectAttributes) {
+        return mcpConfigurationService.findById(id)
+                .map(configuration -> {
+                    List<McpToolSelectionRow> tools = mcpToolSelectionService.loadAvailableTools(id);
+                    model.addAttribute("mcpConfiguration", configuration);
+                    model.addAttribute("tools", tools);
+                    model.addAttribute("activeNav", "system-settings");
+                    return "system-settings/mcp-tool-selection";
+                })
+                .orElseGet(() -> {
+                    redirectAttributes.addFlashAttribute("error", "MCP configuration not found");
+                    return "redirect:/system-settings";
+                });
+    }
+
+    @PostMapping("/mcp-configurations/{id}/tools/save")
+    public String saveMcpToolSelection(@PathVariable Long id,
+                                       @RequestParam(name = "selectedQualifiedNames", required = false)
+                                       List<String> selectedQualifiedNames,
+                                       RedirectAttributes redirectAttributes) {
+        try {
+            mcpToolSelectionService.saveSelection(id, selectedQualifiedNames);
+            redirectAttributes.addFlashAttribute("success", "MCP tool selection saved successfully");
+            return "redirect:/system-settings";
+        } catch (Exception e) {
+            log.error("Failed to save MCP tool selection", e);
+            redirectAttributes.addFlashAttribute("error", "Failed to save MCP tool selection: " + e.getMessage());
+            return "redirect:/system-settings/mcp-configurations/" + id + "/tools";
+        }
     }
 
     @PostMapping("/mcp-configurations/{id}/delete")

@@ -108,6 +108,10 @@
                                     </td>
                                     <td>
                                         <div class="btn-group-with-gap btn-group-sm">
+                                            <a th:href="@{/system-settings/mcp-configurations/{id}/tools(id=${mcpConfiguration.id})}"
+                                               class="btn btn-outline-secondary">
+                                                <i class="bi bi-tools"></i> Tools
+                                            </a>
                                             <a th:href="@{/system-settings/mcp-configurations/{id}/edit(id=${mcpConfiguration.id})}"
                                                class="btn btn-outline-primary">
                                                 <i class="bi bi-pencil"></i> Edit
