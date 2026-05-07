@@ -76,6 +76,20 @@ class GitLabWebhookHandlerTest {
     }
 
     @Test
+    void mergeRequestUpdateWhenOtherReviewerAddedButBotAlreadyAssigned_doesNotRetriggerReview() {
+        // Bot was already a reviewer; a different reviewer is now added. The bot should NOT re-review.
+        Map<String, Object> changes = Map.of("reviewers", Map.of(
+                "previous", List.of(user("ai_bot"), user("human1")),
+                "current", List.of(user("ai_bot"), user("human1"), user("human2"))));
+
+        ResponseEntity<String> response = handler.handleWebhook(bot, "Merge Request Hook",
+                mergeRequestPayload("update", List.of(user("ai_bot"), user("human1"), user("human2")), changes));
+
+        assertEquals("ignored", response.getBody());
+        verify(botWebhookService, never()).reviewPullRequest(any(), any());
+    }
+
+    @Test
     void mergeRequestApprovedFromBotReviewer_triggersReviewRequest() {
         lenient().when(botWebhookService.isBotUser(eq(bot), any(WebhookPayload.class))).thenReturn(true);
 

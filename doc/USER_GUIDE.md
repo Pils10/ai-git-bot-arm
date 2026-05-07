@@ -48,7 +48,7 @@ AI Integrations define connections to AI providers. Navigate to **AI Integration
      
      | Provider | Default API URL | Suggested Models |
      |----------|-----------------|------------------|
-     | `anthropic` | `https://api.anthropic.com` | claude-opus-4-6, claude-sonnet-4-6, claude-haiku-4-5-20251001 |
+     | `anthropic` | `https://api.anthropic.com` | claude-opus-4-7, claude-sonnet-4-6, claude-haiku-4-5-20251001 |
      | `openai` | `https://api.openai.com` | gpt-5.5, gpt-5.4, gpt-5.4-mini, gpt-5.3-codex |
      | `ollama` | `http://localhost:11434` | *(user-configured)* |
      | `llamacpp` | `http://localhost:8081` | *(user-configured)* |
@@ -68,7 +68,7 @@ AI Integrations define connections to AI providers. Navigate to **AI Integration
 #### Anthropic
 - Requires an API key
 - API version defaults to `2023-06-01` if not specified
-- Suggested models: claude-opus-4-6 (most capable), claude-sonnet-4-6 (balanced), claude-haiku-4-5-20251001 (fastest)
+- Suggested models: claude-opus-4-7 (most capable), claude-sonnet-4-6 (balanced), claude-haiku-4-5-20251001 (fastest)
 
 #### OpenAI
 - Requires an API key
@@ -287,9 +287,9 @@ Select the following events in your Git provider's webhook configuration:
 |-------|-------|--------|--------|-----------|-------------|
 | Pull Request | ✅ Pull Request | ✅ Pull requests | ✅ Merge request events | ✅ PR: Created/Updated | PR/MR open/close and reviewer request events |
 | Comments | ✅ Issue Comment | ✅ Issue comments | ✅ Comments | ✅ PR: Comment created | Bot mentions in comments; Bitbucket re-review requests |
-| PR Review | ✅ Pull Request Review | ✅ Pull request reviews | — | — | Review submissions |
+| PR Review | ✅ Pull Request (`reviewed` action) | ✅ Pull request reviews | — | — | Review submissions |
 | PR Comment | ✅ Pull Request Comment | ✅ Pull request review comments | — | — | Inline code comments |
-| Issues | ✅ Issues | ✅ Issues | ✅ Issues events | — | Agent feature (optional) |
+| Issues | ✅ Issues | ✅ Issues | ✅ Issues events | — | Issue-based agent workflows (optional) |
 
 ### Bot Statistics
 
@@ -468,4 +468,4 @@ The web UI is protected by Spring Security with form-based authentication. The A
 | `AGENT_VALIDATION_ENABLED` | `true` | Enable syntax validation before commit |
 | `AGENT_VALIDATION_MAX_RETRIES` | `3` | Max iterations for error correction |
 
-See [Agent Documentation](AGENT.md) for full details on the issue implementation agent.
+See [Agent Documentation](AGENT.md) for full details on the coding and writer agent workflows.

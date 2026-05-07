@@ -326,17 +326,19 @@ The bot fetches the files and runs the tools, then asks the AI to continue with 
 ```yaml
 services:
   app:
-    image: ai-gitea-bot:latest
+    image: tmseidel/ai-git-bot:latest
     environment:
-      GITEA_URL: https://your-gitea-instance.com
-      GITEA_TOKEN: your-gitea-api-token
-      AI_PROVIDER: anthropic
-      AI_ANTHROPIC_API_KEY: your-api-key
-      BOT_USERNAME: ai_bot
+      SPRING_PROFILES_ACTIVE: docker
+      DATABASE_URL: jdbc:postgresql://db:5432/giteabot
+      DATABASE_USERNAME: giteabot
+      DATABASE_PASSWORD: change-me
+      APP_ENCRYPTION_KEY: your-secure-encryption-key
       AGENT_BRANCH_PREFIX: "ai-agent/"
       # AGENT_ENABLED: "false"  # Uncomment to disable the coding agent
       # AGENT_ALLOWED_REPOS: "myorg/repo1,myorg/repo2"
 ```
+
+Then configure the **AI Integration**, **Git Integration**, **System Prompt** entry, and **Coding bot / Writer bot** in the web UI.
 
 ## Security Considerations
 
@@ -404,16 +406,18 @@ To try the agent with a larger Ollama model:
 
 ```bash
 ollama pull qwen2.5-coder:32b
-export AI_PROVIDER=ollama
-export AI_MODEL=qwen2.5-coder:32b
-export AGENT_ENABLED=true
 ```
+
+Then in the web UI:
+
+1. Create or edit an **Ollama** AI integration and set the model to `qwen2.5-coder:32b`.
+2. Assign that integration to your bot.
+3. For a **coding bot**, keep **Agent Enabled** turned on.
+4. For a **writer bot**, assign the writer bot to an issue only after validating that the model can handle structured JSON reliably.
 
 To **disable the coding agent** when using smaller Ollama models (recommended):
 
-```bash
-export AGENT_ENABLED=false
-```
+Turn off **Agent Enabled** on the coding bot in the web UI. Writer workflows are selected separately via **Bot Type = Writer bot**.
 
 ## Error Handling
 

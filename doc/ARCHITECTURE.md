@@ -7,7 +7,6 @@ This document describes the high-level architecture of the AI-Git-Bot, the intel
 AI-Git-Bot acts as a **central gateway** that decouples Git hosting platforms from AI providers. This means:
 
 - **Any Git platform** (Gitea, GitHub, GitLab, Bitbucket) can be connected with **any AI provider** (Anthropic, OpenAI, Ollama, llama.cpp)
-- Optional **MCP capabilities** can be attached per bot with a persisted tool whitelist
 - Multiple bots with different configurations can run in parallel
 - All webhook routing, session management, and credential handling is centralized in a single application
 - The same AI configuration can serve multiple repositories across different Git platforms
@@ -19,8 +18,6 @@ graph LR
     Git["Git Platform<br/>(Gitea / GitHub / GitLab / Bitbucket)"]
     Bot["AI-Git-Bot<br/>(Gateway)"]
     AI["AI Provider<br/>(Anthropic / OpenAI / Ollama / llama.cpp)"]
-    MCPConfig["MCP Config + Tool Whitelist"]
-    MCPServers["Remote MCP Servers"]
     DB["PostgreSQL Database"]
 
     Git -- "Webhook (PR/Comment/Review event)" --> Bot
@@ -30,13 +27,10 @@ graph LR
     Bot -- "Add reaction" --> Git
     Bot -- "Review diff / Chat" --> AI
     AI -- "Review text" --> Bot
-    Bot -- "Discover tools / Call MCP tools" --> MCPServers
-    MCPConfig -- "Selected tool exposure" --> Bot
     Bot -- "Config & Sessions" --> DB
-    MCPConfig -- "Persisted selection" --> DB
 ```
 
-The gateway sits between Git hosting platforms (Gitea, GitHub, GitLab, or Bitbucket), configurable AI providers, and optional remote MCP servers. When a pull request is opened or updated, the Git provider sends a webhook to the gateway. The gateway fetches the diff, sends it to the configured AI provider for review, and posts the review back as a PR comment. All configuration (AI integrations, Git integrations, bots, MCP configurations, MCP selected-tool whitelist) and conversation sessions are persisted in a database.
+The gateway sits between Git hosting platforms (Gitea, GitHub, GitLab, or Bitbucket) and configurable AI providers. When a pull request is opened with the bot as reviewer, or the bot is later added/re-requested as reviewer, the Git provider sends a webhook to the gateway. The gateway fetches the diff, sends it to the configured AI provider for review, and posts the review back as a PR comment. All configuration (AI integrations, Git integrations, bots) and conversation sessions are persisted in a database.
 
 The gateway also responds to inline review comments and submitted reviews containing bot mentions by fetching the relevant review data from the Git API and posting context-aware replies. In **agent mode**, it supports two issue-based workflows: a **coding agent** that implements issues and opens pull requests, and a **technical writer agent** that improves vague issues into structured, implementation-ready follow-up issues.
 
@@ -49,7 +43,6 @@ graph TD
             GiteaWebhookController["GiteaWebhookController<br/><i>Gitea webhook endpoints</i>"]
             GitHubWebhookController["GitHubWebhookController<br/><i>GitHub webhook endpoints</i>"]
             AdminControllers["Admin Controllers<br/><i>Dashboard, Bots, Integrations</i>"]
-            SystemSettingsController["SystemSettingsController<br/><i>MCP + prompt admin UI</i>"]
             SetupController["SetupController<br/><i>Initial setup</i>"]
         end
         
@@ -59,8 +52,6 @@ graph TD
             AiIntegrationService["AiIntegrationService<br/><i>AI config CRUD</i>"]
             GitIntegrationService["GitIntegrationService<br/><i>Git config CRUD</i>"]
             SessionService["SessionService<br/><i>Session lifecycle</i>"]
-            McpToolSelectionService["McpToolSelectionService<br/><i>Whitelist persistence/filtering</i>"]
-            McpOrchestrationService["McpOrchestrationService<br/><i>MCP discovery + execution</i>"]
             EncryptionService["EncryptionService<br/><i>API key encryption</i>"]
         end
 
@@ -105,8 +96,6 @@ graph TD
             BotRepo["BotRepository"]
             AiIntegrationRepo["AiIntegrationRepository"]
             GitIntegrationRepo["GitIntegrationRepository"]
-            McpConfigurationRepo["McpConfigurationRepository"]
-            McpSelectedToolRepo["McpSelectedToolRepository"]
             SessionRepo["ReviewSessionRepository"]
             AdminRepo["AdminUserRepository"]
         end
@@ -122,7 +111,6 @@ graph TD
         Ollama["Ollama (local)"]
         LlamaCpp["llama.cpp (local)"]
         PromptFiles["Prompt Files<br/><i>prompts/*.md</i>"]
-        MCPServers["Remote MCP Servers"]
         DB["Database<br/><i>PostgreSQL / H2</i>"]
     end
 
@@ -133,13 +121,6 @@ graph TD
     BotWebhookService --> AiClientFactory
     BotWebhookService --> RepoClientFactory
     BotWebhookService --> SessionService
-    BotWebhookService --> McpToolSelectionService
-    BotWebhookService --> McpOrchestrationService
-    AdminControllers --> McpToolSelectionService
-    SystemSettingsController --> McpToolSelectionService
-    McpToolSelectionService --> McpOrchestrationService
-    McpToolSelectionService --> McpSelectedToolRepo
-    McpToolSelectionService --> McpConfigurationRepo
     AiClientFactory --> AiProviderRegistry
     AiClientFactory --> AiIntegrationService
     RepoClientFactory --> RepoProviderRegistry
@@ -177,11 +158,8 @@ graph TD
     GitHubClient --> GitHub
     GitLabClient --> GitLab
     BitbucketClient --> Bitbucket
-    McpOrchestrationService --> MCPServers
     BotRepo --> DB
     SessionRepo --> DB
-    McpConfigurationRepo --> DB
-    McpSelectedToolRepo --> DB
 ```
 
 ## AI Provider Architecture
@@ -367,8 +345,7 @@ erDiagram
         String name UK
         String username
         BotType botType
-        Long systemPromptId FK
-        Long mcpConfigurationId FK
+        String prompt
         String webhookSecret UK
         boolean enabled
         boolean agentEnabled
@@ -395,29 +372,9 @@ erDiagram
         String content
         Instant createdAt
     }
-
-    McpConfiguration {
-        Long id PK
-        String name UK
-        String jsonContent
-        Instant createdAt
-        Instant updatedAt
-    }
-
-    McpSelectedTool {
-        Long id PK
-        Long mcpConfigurationId FK
-        String qualifiedName UK
-        String serverName
-        String toolName
-        String title
-        String description
-    }
     
     Bot ||--o{ AiIntegration : "uses"
     Bot ||--o{ GitIntegration : "uses"
-    Bot ||--o| McpConfiguration : "optional"
-    McpConfiguration ||--|{ McpSelectedTool : "contains whitelist"
     ReviewSession ||--|{ ConversationMessage : "contains"
 ```
 
@@ -474,32 +431,6 @@ erDiagram
 - Uses repository context tools and issue tools (`get-issue`, `search-issues`) to improve issue quality
 - Restricts follow-up continuation to the original issue author when clarifying questions are pending
 - Creates a linked `AI Created Issue: ...` instead of a pull request
-
-### MCP Orchestration and Tool Whitelist
-
-- **Orchestration location:** MCP discovery and tool execution are handled in application services, not in AI-provider clients.
-- `McpOrchestrationService` discovers tools from configured remote MCP servers and executes MCP tool calls.
-- `McpToolSelectionService` persists and serves the MCP tool whitelist per `McpConfiguration`.
-- `BotWebhookService` applies the whitelist before creating `IssueImplementationService` / `WriterAgentService`, so only selected MCP tools are appended to prompts.
-- `SystemSettingsController` provides MCP configuration + tool-selection flows; `BotController` provides a read-only selected-tools details endpoint for bot configuration.
-
-```mermaid
-flowchart LR
-    Admin["Admin UI"] --> SysCtrl["SystemSettingsController"]
-    SysCtrl --> SelSvc["McpToolSelectionService"]
-    SelSvc --> Orchestrator["McpOrchestrationService"]
-    Orchestrator --> MCPServers["Remote MCP Servers"]
-    SelSvc --> SelRepo["McpSelectedToolRepository"]
-
-    BotWebhook["BotWebhookService"] --> Orchestrator
-    BotWebhook --> SelSvc
-    SelRepo --> Filtered["Filtered MCP catalog"]
-    Filtered --> PromptRenderer["McpToolPromptRenderer"]
-    PromptRenderer --> Agents["IssueImplementationService / WriterAgentService"]
-
-    BotForm["Bots form (Details)"] --> BotCtrl["BotController selected-tools endpoint"]
-    BotCtrl --> SelSvc
-```
 
 ### AiClientFactory
 
