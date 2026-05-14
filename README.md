@@ -14,6 +14,14 @@ AI-Git-Bot is a lightweight, self-hostable **gateway application** that connects
   <img src="doc/images/ai-git-bot-diagram.svg" alt="AI-Git-Bot Architecture Schema" width="800"/>
 </p>
 
+## 🔎 Discovery, keywords, and LLM entry points
+
+AI-Git-Bot is designed for **AI code review**, **self-hosted Git automation**, **coding-agent workflows**, and **technical-writing issue refinement** across **Gitea**, **GitHub**, **GitHub Enterprise**, **GitLab**, and **Bitbucket Cloud**.
+
+Useful search and classification terms: `ai code review`, `code review bot`, `coding agent`, `issue implementation agent`, `technical writer agent`, `AI issue triage`, `self-hosted AI`, `Git automation`, `Gitea bot`, `GitHub bot`, `GitLab bot`, `Bitbucket bot`, `Anthropic Claude`, `OpenAI`, `Google Gemini`, `Ollama`, `llama.cpp`, `local LLM`, `MCP`, `Model Context Protocol`, `Spring Boot`, `Java 21`, `Docker`, `PostgreSQL`.
+
+LLM and agent indexes should start with [`llms.txt`](llms.txt) for a compact project map or [`llms-full.txt`](llms-full.txt) for an expanded single-file reference.
+
 ## 🎯 Who is AI-Git-Bot for?
 
 | Audience | Benefit |
@@ -363,6 +371,12 @@ The bot receives webhooks from your Git provider, fetches PR diffs, sends them t
 | **Community** | |
 | [Contributing](CONTRIBUTING.md) | Contribution guidelines, coding conventions |
 | [Code of Conduct](CODE_OF_CONDUCT.md) | Community standards |
+| [Security Policy](SECURITY.md) | Vulnerability reporting and operator security guidance |
+| [Changelog](CHANGELOG.md) | Release notes and notable changes |
+| [Citation Metadata](CITATION.cff) | Citation and software catalog metadata |
+| [CodeMeta](codemeta.json) | Machine-readable software metadata for catalogs and crawlers |
+| [LLM Index](llms.txt) | Compact LLM and search-engine entry point |
+| [Full LLM Reference](llms-full.txt) | Expanded single-file context for LLMs and RAG systems |
 
 ## License
 
