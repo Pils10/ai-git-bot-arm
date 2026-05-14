@@ -2,7 +2,7 @@
 
 > **Half Bot, half Agent** — The intelligent Gateway between Git platforms and AI providers. 🤖🧠
 
-AI-Git-Bot is a lightweight, self-hostable **Gateway application** for AI-powered code reviews, issue implementation, and technical-writing issue drafting. Connects **Gitea, GitHub, GitHub Enterprise, GitLab, and Bitbucket Cloud** with **Anthropic Claude, OpenAI, Ollama (local LLMs), and llama.cpp** — all managed through a **web-based UI**.
+AI-Git-Bot is a lightweight, self-hostable **Gateway application** for AI-powered code reviews, issue implementation, and technical-writing issue drafting. Connects **Gitea, GitHub, GitHub Enterprise, GitLab, and Bitbucket Cloud** with **Anthropic Claude, OpenAI, Google AI / Gemini, Ollama (local LLMs), and llama.cpp** — all managed through a **web-based UI**.
 
 ## Features
 
@@ -10,13 +10,13 @@ AI-Git-Bot is a lightweight, self-hostable **Gateway application** for AI-powere
 - **Web-Based Management** — Configure bots, AI providers, and Git connections through a browser UI
 - **Multi-Bot Support** — Create multiple bots with different AI providers, prompts, and personas
 - **Multiple Git Providers** — Gitea, GitHub, GitHub Enterprise, GitLab, and Bitbucket Cloud support
-- **Multiple AI Providers** — Anthropic, OpenAI, Ollama, and llama.cpp support
+- **Multiple AI Providers** — Anthropic, OpenAI, Google AI / Gemini, Ollama, and llama.cpp support
 - **Reviewer-Triggered PR Reviews** — Reviews diffs when the bot is assigned or re-requested as reviewer
 - **Interactive Bot Commands** — Mention the bot in PR comments to ask questions
 - **Inline Review Comments** — Context-aware answers to code-level review comments
 - **Coding Agent** — Assign a coding bot to an issue for autonomous code generation and PR creation
 - **Technical Writer Agent** — Assign a writer bot to improve vague issues into actionable, testable follow-up issues
-- **AI-Driven Code Validation** — Agent validates generated code with build tools (Maven, Gradle, npm, etc.)
+- **AI-Driven Code Validation** — Agent validates generated code with build tools (Maven, Gradle, npm, .NET, etc.)
 - **Read-Only Issue Drafting Workflow** — Writer bots can inspect repository context without modifying repository files
 - **Session Management** — Maintains conversation history per PR
 - **Smart Diff Chunking** — Splits large diffs into chunks with retry on token limits
@@ -101,6 +101,7 @@ volumes:
 |----------|-----------------|------------------|
 | **Anthropic** | `https://api.anthropic.com` | claude-opus-4-7, claude-sonnet-4-6, claude-haiku-4-5-20251001 |
 | **OpenAI** | `https://api.openai.com` | gpt-5.5, gpt-5.4, gpt-5.4-mini, gpt-5.3-codex |
+| **Google AI / Gemini** | `https://generativelanguage.googleapis.com` | gemini-2.5-pro, gemini-2.5-flash, gemini-2.0-flash |
 | **Ollama** | `http://localhost:11434` | User-configured local models |
 | **llama.cpp** | `http://localhost:8081` | User-configured GGUF models |
 
@@ -165,15 +166,15 @@ Built-in health check runs every 30s with a 30s start period.
 
 ## Source Code & Documentation
 
-- [GitHub Repository](https://github.com/tmseidel/anthropic-gitea-bot)
-- [User Guide](https://github.com/tmseidel/anthropic-gitea-bot/blob/main/doc/USER_GUIDE.md)
-- [Architecture](https://github.com/tmseidel/anthropic-gitea-bot/blob/main/doc/ARCHITECTURE.md)
-- [Agent Documentation](https://github.com/tmseidel/anthropic-gitea-bot/blob/main/doc/AGENT.md)
-- [Gitea Setup Guide](https://github.com/tmseidel/anthropic-gitea-bot/blob/main/doc/GITEA_SETUP.md)
-- [GitHub Setup Guide](https://github.com/tmseidel/anthropic-gitea-bot/blob/main/doc/GITHUB_SETUP.md)
-- [GitLab Setup Guide](https://github.com/tmseidel/anthropic-gitea-bot/blob/main/doc/GITLAB_SETUP.md)
-- [Bitbucket Setup Guide](https://github.com/tmseidel/anthropic-gitea-bot/blob/main/doc/BITBUCKET_SETUP.md)
-- [Deployment Guide](https://github.com/tmseidel/anthropic-gitea-bot/blob/main/doc/DEPLOYMENT.md)
+- [GitHub Repository](https://github.com/tmseidel/ai-git-bot)
+- [User Guide](https://github.com/tmseidel/ai-git-bot/blob/main/doc/USER_GUIDE.md)
+- [Architecture](https://github.com/tmseidel/ai-git-bot/blob/main/doc/ARCHITECTURE.md)
+- [Agent Documentation](https://github.com/tmseidel/ai-git-bot/blob/main/doc/AGENT.md)
+- [Gitea Setup Guide](https://github.com/tmseidel/ai-git-bot/blob/main/doc/GITEA_SETUP.md)
+- [GitHub Setup Guide](https://github.com/tmseidel/ai-git-bot/blob/main/doc/GITHUB_SETUP.md)
+- [GitLab Setup Guide](https://github.com/tmseidel/ai-git-bot/blob/main/doc/GITLAB_SETUP.md)
+- [Bitbucket Setup Guide](https://github.com/tmseidel/ai-git-bot/blob/main/doc/BITBUCKET_SETUP.md)
+- [Deployment Guide](https://github.com/tmseidel/ai-git-bot/blob/main/doc/DEPLOYMENT.md)
 
 ## License
 

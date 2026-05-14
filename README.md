@@ -14,6 +14,14 @@ AI-Git-Bot is a lightweight, self-hostable **gateway application** that connects
   <img src="doc/images/ai-git-bot-diagram.svg" alt="AI-Git-Bot Architecture Schema" width="800"/>
 </p>
 
+## 🔎 Discovery, keywords, and LLM entry points
+
+AI-Git-Bot is designed for **AI code review**, **self-hosted Git automation**, **coding-agent workflows**, and **technical-writing issue refinement** across **Gitea**, **GitHub**, **GitHub Enterprise**, **GitLab**, and **Bitbucket Cloud**.
+
+Useful search and classification terms: `ai code review`, `code review bot`, `coding agent`, `issue implementation agent`, `technical writer agent`, `AI issue triage`, `self-hosted AI`, `Git automation`, `Gitea bot`, `GitHub bot`, `GitLab bot`, `Bitbucket bot`, `Anthropic Claude`, `OpenAI`, `Google Gemini`, `Ollama`, `llama.cpp`, `local LLM`, `MCP`, `Model Context Protocol`, `Spring Boot`, `Java 21`, `Docker`, `PostgreSQL`.
+
+LLM and agent indexes should start with [`llms.txt`](llms.txt) for a compact project map or [`llms-full.txt`](llms-full.txt) for an expanded single-file reference.
+
 ## 🎯 Who is AI-Git-Bot for?
 
 | Audience | Benefit |
@@ -55,6 +63,7 @@ graph LR
     subgraph AI Providers
         Anthropic
         OpenAI
+        GoogleAI[Google AI / Gemini]
         Ollama
         llama.cpp
     end
@@ -70,6 +79,7 @@ graph LR
     Bitbucket <--> Gateway
     Gateway <--> Anthropic
     Gateway <--> OpenAI
+    Gateway <--> GoogleAI
     Gateway <--> Ollama
     Gateway <--> llama.cpp
     Gateway <--> MCPServers
@@ -188,7 +198,7 @@ See [MCP Server Handling](doc/MCP_SERVER_HANDLING.md) for the full workflow.
 
 All configuration is managed through a **web-based UI** — no environment variables needed for AI providers, Git connections, or bot settings:
 
-- Create multiple **AI Integrations** (Anthropic, OpenAI, Ollama, llama.cpp)
+- Create multiple **AI Integrations** (Anthropic, OpenAI, Google AI / Gemini, Ollama, llama.cpp)
 - Create multiple **Git Integrations** (Gitea, GitHub, GitHub Enterprise, GitLab, Bitbucket Cloud)
 - Create multiple **Bots**, each with its own webhook URL, AI provider, and system prompt
 - Dashboard with statistics and monitoring
@@ -201,6 +211,7 @@ All configuration is managed through a **web-based UI** — no environment varia
 |----------|-----------------|------------------|
 | **Anthropic** | `https://api.anthropic.com` | claude-opus-4-7, claude-sonnet-4-6, claude-haiku-4-5-20251001 |
 | **OpenAI** | `https://api.openai.com` | gpt-5.5, gpt-5.4, gpt-5.4-mini, gpt-5.3-codex |
+| **Google AI / Gemini** | `https://generativelanguage.googleapis.com` | gemini-2.5-pro, gemini-2.5-flash, gemini-2.0-flash |
 | **Ollama** | `http://localhost:11434` | User-configured local models |
 | **llama.cpp** | `http://localhost:8081` | User-configured GGUF models |
 
@@ -218,7 +229,7 @@ All configuration is managed through a **web-based UI** — no environment varia
 
 - **Session Management** — Maintains conversation history per PR, persisted in the database, enabling context-aware follow-up reviews
 - **Configurable System Prompts** — Manage reusable review, coding-agent, and writer-agent prompt entries in System settings and assign them per bot
-- **AI-Driven Code Validation** — The agent validates generated code with build tools (Maven, Gradle, npm, Go, Cargo, etc.)
+- **AI-Driven Code Validation** — The agent validates generated code with build tools (Maven, Gradle, npm, Go, Cargo, .NET, etc.)
 - **Health Endpoint** — `/actuator/health` for monitoring and orchestration
 
 ## Docker
@@ -288,6 +299,7 @@ This starts:
    - Select a model from the dropdown or enter a custom model name
    - Enter your API key
    - OpenAI-compatible providers can often be configured by selecting "openai" and entering the provider's custom API URL, API key, and model; see the [User Guide](doc/USER_GUIDE.md#openai-compatible-apis)
+   - For Gemini, select **gemini** in the UI and use a Gemini API key from Google AI Studio; see the [User Guide](doc/USER_GUIDE.md#google-ai)
 
 2. **Create a Git Integration:**
    - Go to **Git Integrations → New Integration**
@@ -319,7 +331,7 @@ See the [User Guide](doc/USER_GUIDE.md) for detailed instructions.
 graph LR
    Git["Git Platform<br/>(Gitea / GitHub / GitLab / Bitbucket)"]
    Bot["AI-Git-Bot<br/>(Gateway)"]
-   AI["AI Provider<br/>(Anthropic / OpenAI / Ollama / llama.cpp)"]
+   AI["AI Provider<br/>(Anthropic / OpenAI / Google AI / Gemini / Ollama / llama.cpp)"]
    MCPConfig["MCP Config + Tool Whitelist"]
    MCPServers["Remote MCP Servers"]
    DB["PostgreSQL"]
@@ -359,6 +371,12 @@ The bot receives webhooks from your Git provider, fetches PR diffs, sends them t
 | **Community** | |
 | [Contributing](CONTRIBUTING.md) | Contribution guidelines, coding conventions |
 | [Code of Conduct](CODE_OF_CONDUCT.md) | Community standards |
+| [Security Policy](SECURITY.md) | Vulnerability reporting and operator security guidance |
+| [Changelog](CHANGELOG.md) | Release notes and notable changes |
+| [Citation Metadata](CITATION.cff) | Citation and software catalog metadata |
+| [CodeMeta](codemeta.json) | Machine-readable software metadata for catalogs and crawlers |
+| [LLM Index](llms.txt) | Compact LLM and search-engine entry point |
+| [Full LLM Reference](llms-full.txt) | Expanded single-file context for LLMs and RAG systems |
 
 ## License
 

@@ -52,6 +52,34 @@ public class AgentConfigProperties {
      */
     private ValidationConfig validation = new ValidationConfig();
 
+    /**
+     * Context-size settings for prompts built during issue implementation.
+     */
+    private ContextConfig context = new ContextConfig();
+
+    @Data
+    public static class ContextConfig {
+        /**
+         * Maximum number of repository-tree file entries included in agent prompts.
+         */
+        private int maxTreeFiles = 500;
+
+        /**
+         * Maximum number of issue comments included in agent prompts.
+         */
+        private int maxIssueComments = 50;
+
+        /**
+         * Maximum total characters used for issue-comment context.
+         */
+        private int maxIssueCommentsChars = 20_000;
+
+        /**
+         * Maximum characters included from a single issue comment.
+         */
+        private int maxSingleIssueCommentChars = 4_000;
+    }
+
     @Data
     public static class ValidationConfig {
         public enum NonValidationFailurePolicy {
@@ -105,7 +133,8 @@ public class AgentConfigProperties {
                 "gcc",      // C compiler
                 "g++",      // C++ compiler
                 "ruby",     // Ruby
-                "bundle"    // Ruby Bundler
+                "bundle",   // Ruby Bundler
+                "dotnet"    // .NET
         );
     }
 }
