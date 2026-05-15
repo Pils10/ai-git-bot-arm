@@ -2,20 +2,18 @@ package org.remus.giteabot.agent.writerimpl;
 
 import lombok.extern.slf4j.Slf4j;
 import org.remus.giteabot.agent.AgentErrorNotificationService;
-import org.remus.giteabot.agent.model.ImplementationPlan;
+import org.remus.giteabot.agent.loop.AgentBudget;
+import org.remus.giteabot.agent.loop.AgentLoop;
+import org.remus.giteabot.agent.loop.AgentRunContext;
 import org.remus.giteabot.agent.session.AgentSession;
 import org.remus.giteabot.agent.session.AgentSessionService;
 import org.remus.giteabot.agent.shared.BranchRefs;
 import org.remus.giteabot.agent.shared.BranchSwitcher;
-import org.remus.giteabot.agent.shared.McpTools;
 import org.remus.giteabot.agent.tools.AgentToolRouter;
-import org.remus.giteabot.agent.tools.ToolCallContext;
 import org.remus.giteabot.agent.validation.ToolExecutionService;
-import org.remus.giteabot.agent.validation.ToolResult;
 import org.remus.giteabot.agent.validation.WorkspaceResult;
 import org.remus.giteabot.agent.validation.WorkspaceService;
 import org.remus.giteabot.ai.AiClient;
-import org.remus.giteabot.ai.AiMessage;
 import org.remus.giteabot.config.AgentConfigProperties;
 import org.remus.giteabot.config.PromptService;
 import org.remus.giteabot.gitea.model.WebhookPayload;
@@ -27,7 +25,6 @@ import org.remus.giteabot.systemsettings.McpConfiguration;
 import org.springframework.dao.DataIntegrityViolationException;
 
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -242,105 +239,32 @@ public class WriterAgentService {
 
     private void runWriterLoop(AgentSession session, String owner, String repo,
                                Long issueNumber, Path workspaceDir, String userMessage) {
-        String systemPrompt = resolveWriterSystemPrompt();
-        String currentMessage = userMessage + "\n\n" + outputContract();
-        List<AiMessage> history = new ArrayList<>(sessionService.toAiMessages(session));
-        sessionService.addMessage(session, "user", currentMessage);
-
-        int maxToolRounds = maxToolRounds();
-        for (int round = 0; round <= maxToolRounds; round++) {
-            String aiResponse = aiClient.chat(history, currentMessage, systemPrompt, null, agentConfig.getMaxTokens());
-            sessionService.addMessage(session, "assistant", aiResponse);
-            WriterPlan plan = responseParser.parse(aiResponse);
-
-            if (plan.hasContextRequests() && round >= maxToolRounds) {
-                sessionService.setStatus(session, AgentSession.AgentSessionStatus.IN_PROGRESS);
-                repositoryClient.postIssueComment(owner, repo, issueNumber,
-                        "⚠️ **AI Technical Writer**: I need more context before I can continue. "
-                                + "Please add more details and mention me again.");
-                return;
-            }
-
-            if (plan.hasContextRequests() && round < maxToolRounds) {
-                List<ImplementationPlan.ToolRequest> contextRequests = buildContextRequests(plan);
-                BranchSwitcher.Result branchSwitch = branchSwitcher.apply(
-                        workspaceDir, session.getBranchName(), contextRequests, issueNumber);
-                if (branchSwitch.selectedBranch() != null
-                        && !branchSwitch.selectedBranch().equals(session.getBranchName())) {
-                    sessionService.setBranchName(session, branchSwitch.selectedBranch());
-                }
-                List<ToolResult> results = executeTools(owner, repo, issueNumber, workspaceDir,
-                        branchSwitch.remainingToolRequests());
-                history.add(AiMessage.builder().role("user").content(currentMessage).build());
-                history.add(AiMessage.builder().role("assistant").content(aiResponse).build());
-                currentMessage = promptBuilder.buildToolFeedback(branchSwitch.remainingToolRequests(), results);
-                sessionService.addMessage(session, "user", currentMessage);
-                continue;
-            }
-
-            if (plan.hasQuestions() || !plan.isReadyToCreate()) {
-                sessionService.setStatus(session, AgentSession.AgentSessionStatus.IN_PROGRESS);
-                repositoryClient.postIssueComment(owner, repo, issueNumber,
-                        promptBuilder.buildClarifyingQuestionComment(plan));
-                return;
-            }
-
-            Long createdIssueNumber = repositoryClient.createIssue(owner, repo,
-                    "AI Created Issue: " + session.getIssueTitle(),
-                    promptBuilder.buildIssueBody(issueNumber, plan));
-            if (createdIssueNumber == null) {
-                sessionService.setStatus(session, AgentSession.AgentSessionStatus.FAILED);
-                repositoryClient.postIssueComment(owner, repo, issueNumber,
-                        "⚠️ **AI Technical Writer**: I drafted the improved issue, but creating it failed. "
-                                + "Please check the repository provider response and try again.");
-                return;
-            }
-            sessionService.setGeneratedIssueNumber(session, createdIssueNumber);
-            repositoryClient.postIssueComment(owner, repo, issueNumber,
-                    "🤖 **AI Technical Writer**: Created improved issue #" + createdIssueNumber
-                            + " from this discussion.");
-            return;
-        }
-    }
-
-    private List<ImplementationPlan.ToolRequest> buildContextRequests(WriterPlan plan) {
-        List<ImplementationPlan.ToolRequest> requests = new ArrayList<>();
-        if (plan.getRequestTools() != null) {
-            requests.addAll(plan.getRequestTools());
-        }
-        if (plan.getRequestFiles() != null) {
-            int idx = 1;
-            for (String file : plan.getRequestFiles()) {
-                requests.add(ImplementationPlan.ToolRequest.builder()
-                        .id("writer-file-" + idx)
-                        .tool("cat")
-                        .args(List.of(file))
-                        .build());
-                idx++;
-            }
-        }
-        return requests;
+        WriterAgentStrategy strategy = new WriterAgentStrategy(
+                resolveWriterSystemPrompt(),
+                promptBuilder,
+                responseParser,
+                sessionService,
+                repositoryClient,
+                branchSwitcher,
+                toolRouter,
+                maxToolRounds());
+        // The historic loop ran for-each `round in 0..maxToolRounds` (inclusive), i.e. one extra
+        // iteration beyond the context-round limit so the AI gets a chance to produce a
+        // terminal answer after exhausting context. Mirror that by setting the loop's hard
+        // cap to maxToolRounds + 1.
+        AgentBudget budget = new AgentBudget(
+                maxToolRounds() + 1, maxToolRounds(), 0, agentConfig.getMaxTokens());
+        AgentLoop loop = new AgentLoop(aiClient, sessionService, budget);
+        AgentRunContext ctx = new AgentRunContext(
+                session, owner, repo, issueNumber, workspaceDir, session.getBranchName());
+        loop.run(ctx, userMessage + "\n\n" + outputContract(), strategy);
     }
 
     private String normalizeBranchRef(String ref) {
         return BranchRefs.normalize(ref);
     }
 
-    private boolean isMcpTool(String toolName) {
-        return McpTools.isMcpTool(mcpOrchestrationService, mcpToolCatalog, toolName);
-    }
 
-
-    private List<ToolResult> executeTools(String owner, String repo, Long issueNumber,
-                                          Path workspaceDir,
-                                          List<ImplementationPlan.ToolRequest> requests) {
-        List<ToolResult> results = new ArrayList<>();
-        for (ImplementationPlan.ToolRequest request : requests) {
-            results.add(toolRouter.execute(AgentToolRouter.Mode.WRITER,
-                    new ToolCallContext(owner, repo, issueNumber, workspaceDir, request)));
-        }
-        return results;
-    }
 
     private boolean isIssueAuthor(String owner, String repo, Long issueNumber, WebhookPayload payload) {
         String commenter = payload.getComment() != null && payload.getComment().getUser() != null

@@ -3,7 +3,12 @@ package org.remus.giteabot.agent;
 import lombok.extern.slf4j.Slf4j;
 import org.remus.giteabot.agent.issueimpl.AgentPromptBuilder;
 import org.remus.giteabot.agent.issueimpl.AiResponseParser;
+import org.remus.giteabot.agent.issueimpl.CodingAgentStrategy;
 import org.remus.giteabot.agent.issueimpl.IssueNotificationService;
+import org.remus.giteabot.agent.loop.AgentBudget;
+import org.remus.giteabot.agent.loop.AgentLoop;
+import org.remus.giteabot.agent.loop.AgentRunContext;
+import org.remus.giteabot.agent.loop.LoopOutcome;
 import org.remus.giteabot.agent.model.ImplementationPlan;
 import org.remus.giteabot.agent.session.AgentSession;
 import org.remus.giteabot.agent.session.AgentSessionService;
@@ -12,7 +17,6 @@ import org.remus.giteabot.agent.shared.BranchSwitcher;
 import org.remus.giteabot.agent.shared.McpTools;
 import org.remus.giteabot.agent.shared.ToolFailures;
 import org.remus.giteabot.agent.tools.AgentToolRouter;
-import org.remus.giteabot.agent.tools.ToolCallContext;
 import org.remus.giteabot.agent.validation.ToolExecutionService;
 import org.remus.giteabot.agent.validation.ToolResult;
 import org.remus.giteabot.agent.validation.WorkspaceResult;
@@ -33,7 +37,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.stream.IntStream;
 
 /**
  * Core issue-implementation (agent) business logic.  Not a Spring-managed
@@ -263,242 +266,46 @@ public class IssueImplementationService {
 
     /**
      * Unified tool-based implementation loop — used by both {@link #handleIssueAssigned} and
-     * {@link #handleIssueComment}.
-     * <p>
-     * The AI proposes a list of {@code runTools} (file modifications + validation).  All tools
-     * are executed in the cloned workspace.  Validation results are fed back to the AI on
-     * failure so it can self-correct.
-     * <p>
-     * The current session conversation (stored via {@link AgentSessionService}) is used as
-     * context for every AI call, so earlier dialogue (file-request step, prior comments) is
-     * always visible to the model.
+     * {@link #handleIssueComment}. The actual decision logic lives in
+     * {@link CodingAgentStrategy}; this method just wires up the {@link AgentLoop}
+     * with that strategy and the per-run context.
      *
      * @param userMessage the next user turn to kick off this loop (will be appended to the session)
-     * @return {@code true} when the implementation is considered successful
+     * @return success flag plus the branch finally selected for context lookups
      */
     private ToolImplementationLoopResult runToolImplementationLoop(
             AgentSession session, String userMessage, String systemPrompt,
             Path workspaceDir, String owner, String repo, Long issueNumber,
             String initialContextBranch) {
 
-        int maxRetries    = agentConfig.getValidation().isEnabled()
+        CodingAgentStrategy strategy = new CodingAgentStrategy(
+                systemPrompt,
+                promptBuilder,
+                responseParser,
+                notificationService,
+                sessionService,
+                repositoryClient,
+                branchSwitcher,
+                toolRouter,
+                toolExecutionService,
+                workspaceService,
+                agentConfig,
+                mcpOrchestrationService,
+                mcpToolCatalog,
+                this::fetchRequestedContext);
+
+        // Hard cap: validation retries + context-fetch rounds + missing-tool rounds. Use a
+        // generous upper bound so the strategy's own sub-budgets are what actually limit progress.
+        int maxRetries = agentConfig.getValidation().isEnabled()
                 ? agentConfig.getValidation().getMaxRetries() : 1;
         int maxToolRounds = agentConfig.getValidation().getMaxToolExecutions();
-        int fileRequestRounds = 0;
-        int toolRounds    = 0;
-        String currentContextBranch = initialContextBranch;
-
-        // Snapshot the prior conversation history (file-request dialogue, earlier comments, …)
-        // so it is visible to the model as context.  The list is then extended locally as the
-        // loop progresses — we do not re-query the session on every iteration so that mocks
-        // in tests remain simple.
-        List<AiMessage> history = new ArrayList<>(sessionService.toAiMessages(session));
-        sessionService.addMessage(session, "user", userMessage);
-        String currentMessage = userMessage;
-
-        for (int attempt = 1; attempt <= maxRetries; attempt++) {
-            log.info("Tool implementation loop for issue #{}, attempt {}/{}", issueNumber, attempt, maxRetries);
-
-            String aiResponse = aiClient.chat(history, currentMessage, systemPrompt,
-                    null, agentConfig.getMaxTokens());
-            sessionService.addMessage(session, "assistant", aiResponse);
-            notificationService.postAiThinkingComment(owner, repo, issueNumber, aiResponse);
-
-            ImplementationPlan plan = responseParser.parseAiResponse(aiResponse);
-            if (plan == null) {
-                log.warn("Failed to parse AI response on attempt {}", attempt);
-                return new ToolImplementationLoopResult(false, currentContextBranch);
-            }
-
-            // Context request before implementation — does not count as an implementation attempt
-            if (plan.hasContextRequests() && !plan.hasToolRequest() && fileRequestRounds < 3) {
-                fileRequestRounds++;
-                log.info("AI requesting additional context (round {}/3)", fileRequestRounds);
-                BranchSwitcher.Result branchSwitchResult = branchSwitcher.apply(
-                        workspaceDir, currentContextBranch, plan.getRequestTools(), issueNumber);
-                currentContextBranch = branchSwitchResult.selectedBranch();
-                String ctx = fetchRequestedContext(owner, repo, currentContextBranch,
-                        plan.getRequestFiles(), branchSwitchResult.remainingToolRequests(), workspaceDir);
-                String ctxMsg = "Here is the requested repository context:\n" + ctx
-                        + "\n\nNow implement the issue using `runTools`. "
-                        + "Use write-file/patch-file for changes and include validation tools.";
-                history.add(AiMessage.builder().role("user").content(currentMessage).build());
-                history.add(AiMessage.builder().role("assistant").content(aiResponse).build());
-                currentMessage = ctxMsg;
-                sessionService.addMessage(session, "user", ctxMsg);
-                attempt--; // doesn't count as an implementation attempt
-                continue;
-            }
-
-            // No tool requests at all → ask AI to produce them
-            if (!plan.hasToolRequest()) {
-                log.info("AI provided no runTools on attempt {}", attempt);
-                String feedbackMsg = promptBuilder.buildMissingToolFeedback();
-                history.add(AiMessage.builder().role("user").content(currentMessage).build());
-                history.add(AiMessage.builder().role("assistant").content(aiResponse).build());
-                currentMessage = feedbackMsg;
-                sessionService.addMessage(session, "user", feedbackMsg);
-                continue;
-            }
-
-            // Guard against runaway tool rounds
-            if (toolRounds >= maxToolRounds) {
-                log.warn("Reached max tool rounds ({}) — returning current result", maxToolRounds);
-                return new ToolImplementationLoopResult(false, currentContextBranch);
-            }
-            toolRounds++;
-
-            List<ImplementationPlan.ToolRequest> requests = plan.getEffectiveToolRequests();
-            List<ToolResult> results = executeAllTools(workspaceDir, requests);
-            boolean hasValidationTools = hasValidationTools(requests);
-            boolean validationPassed = !hasValidationTools || allValidationToolsPassed(requests, results);
-
-            // Post only non-silent (validation) tool results as comments
-            for (int i = 0; i < requests.size(); i++) {
-                ImplementationPlan.ToolRequest req = requests.get(i);
-                if (!toolExecutionService.isSilentTool(req.getTool()) && !isMcpTool(req.getTool())) {
-                    notificationService.postToolResultComment(owner, repo, issueNumber, req, results.get(i));
-                }
-            }
-
-            if (hasBlockingNonValidationToolFailures(requests, results, validationPassed)) {
-                log.info("One or more non-validation tools failed on attempt {}; asking AI to correct", attempt);
-                String feedback = promptBuilder.buildMultiToolFeedback(requests, results);
-                history.add(AiMessage.builder().role("user").content(currentMessage).build());
-                history.add(AiMessage.builder().role("assistant").content(aiResponse).build());
-                currentMessage = feedback;
-                sessionService.addMessage(session, "user", feedback);
-                continue;
-            }
-
-            // Validation disabled → treat as success after first tool execution
-            if (!agentConfig.getValidation().isEnabled()) {
-                if (!workspaceHasChangesOrPrepareRetry(workspaceDir, requests, results, history, currentMessage, aiResponse, session)) {
-                    currentMessage = buildNoWorkspaceChangesFeedback(requests, results);
-                    continue;
-                }
-                return new ToolImplementationLoopResult(true, currentContextBranch);
-            }
-
-            // No validation tools present → file-only changes, consider success
-            if (!hasValidationTools) {
-                if (!workspaceHasChangesOrPrepareRetry(workspaceDir, requests, results, history, currentMessage, aiResponse, session)) {
-                    currentMessage = buildNoWorkspaceChangesFeedback(requests, results);
-                    continue;
-                }
-                return new ToolImplementationLoopResult(true, currentContextBranch);
-            }
-
-            if (validationPassed) {
-                log.info("All validation tools passed on attempt {}", attempt);
-                if (!workspaceHasChangesOrPrepareRetry(workspaceDir, requests, results, history, currentMessage, aiResponse, session)) {
-                    currentMessage = buildNoWorkspaceChangesFeedback(requests, results);
-                    continue;
-                }
-                return new ToolImplementationLoopResult(true, currentContextBranch);
-            }
-
-            // Validation failed → give feedback and let the AI retry
-            String feedback = promptBuilder.buildMultiToolFeedback(requests, results);
-            history.add(AiMessage.builder().role("user").content(currentMessage).build());
-            history.add(AiMessage.builder().role("assistant").content(aiResponse).build());
-            currentMessage = feedback;
-            sessionService.addMessage(session, "user", feedback);
-        }
-
-        log.warn("Tool implementation loop exhausted {} attempts without full success", maxRetries);
-        return new ToolImplementationLoopResult(false, currentContextBranch);
-    }
-
-    /**
-     * Returns {@code true} if {@code requests} contains at least one configured validation tool
-     * (e.g. {@code mvn}, {@code npm}).  Uses {@link ToolExecutionService#isValidationTool} which
-     * checks the configured {@code available-tools} list — not the weaker {@code !isSilentTool}.
-     */
-    private boolean hasValidationTools(List<ImplementationPlan.ToolRequest> requests) {
-        return requests.stream()
-                .anyMatch(r -> toolExecutionService.isValidationTool(r.getTool()));
-    }
-    /**
-     * Returns {@code true} if every validation tool in {@code requests} produced a successful result.
-     * When there are <em>no</em> validation tools this returns {@code true} vacuously — callers must
-     * guard with {@link #hasValidationTools} when they need to distinguish "nothing to validate" from
-     * "all validations passed".
-     */
-    private boolean allValidationToolsPassed(List<ImplementationPlan.ToolRequest> requests,
-                                              List<ToolResult> results) {
-        return IntStream.range(0, requests.size())
-                .filter(i -> toolExecutionService.isValidationTool(requests.get(i).getTool()))
-                .allMatch(i -> results.get(i).success());
-    }
-
-    private boolean hasNonValidationToolFailures(List<ImplementationPlan.ToolRequest> requests,
-                                                 List<ToolResult> results) {
-        return IntStream.range(0, requests.size())
-                .filter(i -> !toolExecutionService.isValidationTool(requests.get(i).getTool()))
-                .anyMatch(i -> !results.get(i).success());
-    }
-
-    private boolean hasBlockingNonValidationToolFailures(List<ImplementationPlan.ToolRequest> requests,
-                                                         List<ToolResult> results,
-                                                         boolean validationPassed) {
-        if (!hasNonValidationToolFailures(requests, results)) {
-            return false;
-        }
-        AgentConfigProperties.ValidationConfig.NonValidationFailurePolicy policy =
-                agentConfig.getValidation().getNonValidationFailurePolicy();
-        if (policy == AgentConfigProperties.ValidationConfig.NonValidationFailurePolicy.IGNORE_MCP_AFTER_VALIDATION_SUCCESS
-                && validationPassed
-                && hasOnlyMcpNonValidationFailures(requests, results)) {
-            log.info("Ignoring MCP non-validation tool failures because validation passed");
-            return false;
-        }
-        return true;
-    }
-
-    private boolean hasOnlyMcpNonValidationFailures(List<ImplementationPlan.ToolRequest> requests,
-                                                    List<ToolResult> results) {
-        return IntStream.range(0, requests.size())
-                .filter(i -> !toolExecutionService.isValidationTool(requests.get(i).getTool()))
-                .filter(i -> !results.get(i).success())
-                .allMatch(i -> isMcpTool(requests.get(i).getTool()));
-    }
-
-    private boolean workspaceHasChangesOrPrepareRetry(Path workspaceDir,
-                                                      List<ImplementationPlan.ToolRequest> requests,
-                                                      List<ToolResult> results,
-                                                      List<AiMessage> history,
-                                                      String currentMessage,
-                                                      String aiResponse,
-                                                      AgentSession session) {
-        if (workspaceService.hasUncommittedChanges(workspaceDir)) {
-            return true;
-        }
-        log.info("Tool execution produced no Git-detectable workspace changes; asking AI to correct");
-        String feedback = buildNoWorkspaceChangesFeedback(requests, results);
-        history.add(AiMessage.builder().role("user").content(currentMessage).build());
-        history.add(AiMessage.builder().role("assistant").content(aiResponse).build());
-        sessionService.addMessage(session, "user", feedback);
-        return false;
-    }
-
-    private String buildNoWorkspaceChangesFeedback(List<ImplementationPlan.ToolRequest> requests,
-                                                   List<ToolResult> results) {
-        return promptBuilder.buildMultiToolFeedback(requests, results)
-                + "\n\nNo file changes are currently present in the git workspace. "
-                + "Your previous file tools either failed, made no effective change, or only created empty directories. "
-                + "Inspect the files with context tools if needed, then use write-file or patch-file so Git has actual changes to commit.";
-    }
-
-    /** Execute each tool and collect results (file tools via executeFileTool, others via context/validation). */
-    private List<ToolResult> executeAllTools(Path workspaceDir,
-                                              List<ImplementationPlan.ToolRequest> requests) {
-        List<ToolResult> results = new ArrayList<>();
-        for (ImplementationPlan.ToolRequest req : requests) {
-            results.add(toolRouter.execute(AgentToolRouter.Mode.CODING,
-                    new ToolCallContext(null, null, null, workspaceDir, req)));
-        }
-        return results;
+        int hardCap = maxRetries + maxToolRounds + 3 /* file-request rounds */ + 2 /* slack */;
+        AgentBudget budget = new AgentBudget(hardCap, 3, maxRetries, agentConfig.getMaxTokens());
+        AgentLoop loop = new AgentLoop(aiClient, sessionService, budget);
+        AgentRunContext ctx = new AgentRunContext(
+                session, owner, repo, issueNumber, workspaceDir, initialContextBranch);
+        LoopOutcome outcome = loop.run(ctx, userMessage, strategy);
+        return new ToolImplementationLoopResult(outcome.success(), outcome.selectedBranch());
     }
 
     /**
