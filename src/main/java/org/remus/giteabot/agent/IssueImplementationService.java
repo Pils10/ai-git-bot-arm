@@ -7,6 +7,12 @@ import org.remus.giteabot.agent.issueimpl.IssueNotificationService;
 import org.remus.giteabot.agent.model.ImplementationPlan;
 import org.remus.giteabot.agent.session.AgentSession;
 import org.remus.giteabot.agent.session.AgentSessionService;
+import org.remus.giteabot.agent.shared.BranchRefs;
+import org.remus.giteabot.agent.shared.BranchSwitcher;
+import org.remus.giteabot.agent.shared.McpTools;
+import org.remus.giteabot.agent.shared.ToolFailures;
+import org.remus.giteabot.agent.tools.AgentToolRouter;
+import org.remus.giteabot.agent.tools.ToolCallContext;
 import org.remus.giteabot.agent.validation.ToolExecutionService;
 import org.remus.giteabot.agent.validation.ToolResult;
 import org.remus.giteabot.agent.validation.WorkspaceResult;
@@ -68,6 +74,8 @@ public class IssueImplementationService {
     private final AgentPromptBuilder promptBuilder;
     private final IssueNotificationService notificationService;
     private final AgentErrorNotificationService errorNotificationService;
+    private final BranchSwitcher branchSwitcher;
+    private final AgentToolRouter toolRouter;
 
     public IssueImplementationService(IssueImplementationContext context,
                                       PromptService promptService,
@@ -93,6 +101,9 @@ public class IssueImplementationService {
         this.promptBuilder = new AgentPromptBuilder(agentConfig != null ? agentConfig.getContext() : null);
         this.notificationService = new IssueNotificationService(this.repositoryClient, responseParser, toolExecutionService);
         this.errorNotificationService = new AgentErrorNotificationService(this.repositoryClient);
+        this.branchSwitcher = new BranchSwitcher(toolExecutionService);
+        this.toolRouter = new AgentToolRouter(toolExecutionService, this.mcpOrchestrationService,
+                this.mcpConfiguration, this.mcpToolCatalog, this.repositoryClient);
     }
 
     public void handleIssueAssigned(WebhookPayload payload) {
@@ -173,7 +184,7 @@ public class IssueImplementationService {
             log.info("AI requested {} files and {} repository tools for context",
                     requestedFiles.size(), requestedTools != null ? requestedTools.size() : 0);
 
-            BranchSwitchResult branchSwitchResult = applyRequestedBranchSwitch(
+            BranchSwitcher.Result branchSwitchResult = branchSwitcher.apply(
                     workspaceDir, baseBranch, requestedTools, issueNumber);
             baseBranch = branchSwitchResult.selectedBranch();
             requestedTools = branchSwitchResult.remainingToolRequests();
@@ -303,7 +314,7 @@ public class IssueImplementationService {
             if (plan.hasContextRequests() && !plan.hasToolRequest() && fileRequestRounds < 3) {
                 fileRequestRounds++;
                 log.info("AI requesting additional context (round {}/3)", fileRequestRounds);
-                BranchSwitchResult branchSwitchResult = applyRequestedBranchSwitch(
+                BranchSwitcher.Result branchSwitchResult = branchSwitcher.apply(
                         workspaceDir, currentContextBranch, plan.getRequestTools(), issueNumber);
                 currentContextBranch = branchSwitchResult.selectedBranch();
                 String ctx = fetchRequestedContext(owner, repo, currentContextBranch,
@@ -484,20 +495,8 @@ public class IssueImplementationService {
                                               List<ImplementationPlan.ToolRequest> requests) {
         List<ToolResult> results = new ArrayList<>();
         for (ImplementationPlan.ToolRequest req : requests) {
-            log.info("Executing tool: {} {}", req.getTool(),
-                    req.getArgs() != null ? String.join(" ", req.getArgs()) : "");
-            ToolResult res;
-            if (toolExecutionService.isFileTool(req.getTool())) {
-                res = toolExecutionService.executeFileTool(workspaceDir, req.getTool(), req.getArgs());
-            } else if (isMcpTool(req.getTool())) {
-                res = mcpOrchestrationService.executeTool(mcpConfiguration, mcpToolCatalog,
-                        req.getTool(), req.getArgs());
-            } else if (toolExecutionService.isContextTool(req.getTool())) {
-                res = toolExecutionService.executeContextTool(workspaceDir, req.getTool(), req.getArgs());
-            } else {
-                res = toolExecutionService.executeTool(workspaceDir, req.getTool(), req.getArgs());
-            }
-            results.add(res);
+            results.add(toolRouter.execute(AgentToolRouter.Mode.CODING,
+                    new ToolCallContext(null, null, null, workspaceDir, req)));
         }
         return results;
     }
@@ -727,49 +726,6 @@ public class IssueImplementationService {
         return sb.isEmpty() ? "No additional repository context could be retrieved." : sb.toString();
     }
 
-    private BranchSwitchResult applyRequestedBranchSwitch(Path workspaceDir,
-                                                          String baseBranch,
-                                                          List<ImplementationPlan.ToolRequest> toolRequests,
-                                                          Long issueNumber) {
-        if (toolRequests == null || toolRequests.isEmpty()) {
-            return new BranchSwitchResult(baseBranch, baseBranch, List.of());
-        }
-
-        String selectedBranch = baseBranch;
-        boolean switched = false;
-        List<ImplementationPlan.ToolRequest> remaining = new ArrayList<>();
-
-        for (ImplementationPlan.ToolRequest toolRequest : toolRequests) {
-            if (toolRequest == null || toolRequest.getTool() == null || toolRequest.getTool().isBlank()) {
-                continue;
-            }
-
-            if ("branch-switcher".equalsIgnoreCase(toolRequest.getTool()) && !switched) {
-                ToolResult result = toolExecutionService.executeContextTool(
-                        workspaceDir, "branch-switcher", toolRequest.getArgs());
-                String switchedBranch = extractSwitchedBranch(result);
-                if (switchedBranch != null && !switchedBranch.isBlank()) {
-                    selectedBranch = switchedBranch;
-                    switched = true;
-                    log.info("Switched workspace/context branch to '{}' for issue #{}",
-                            selectedBranch, issueNumber);
-                } else {
-                    log.warn("Branch switch request failed for issue #{}: {}",
-                            issueNumber, describeToolFailure(result));
-                }
-                continue;
-            }
-
-            if ("branch-switcher".equalsIgnoreCase(toolRequest.getTool())) {
-                log.info("Ignoring additional branch-switcher request for issue #{}", issueNumber);
-                continue;
-            }
-
-            remaining.add(toolRequest);
-        }
-
-        return new BranchSwitchResult(baseBranch, selectedBranch, remaining);
-    }
 
     private String executeRequestedContextTools(Path workspaceDir,
                                                 List<ImplementationPlan.ToolRequest> toolRequests) {
@@ -801,7 +757,7 @@ public class IssueImplementationService {
                 String output = result.output();
                 sb.append(output == null || output.isBlank() ? "(no output)" : output).append("\n\n");
             } else {
-                sb.append("Failed: ").append(describeToolFailure(result))
+                sb.append("Failed: ").append(ToolFailures.describe(result))
                         .append("\n\n");
             }
         }
@@ -838,60 +794,18 @@ public class IssueImplementationService {
      * Normalizes a branch reference by removing the "refs/heads/" prefix if present.
      */
     private String normalizeBranchRef(String ref) {
-        if (ref == null || ref.isBlank()) {
-            return null;
-        }
-        if (ref.startsWith("refs/heads/")) {
-            return ref.substring("refs/heads/".length());
-        }
-        if (ref.startsWith("refs/tags/")) {
-            return ref.substring("refs/tags/".length());
-        }
-        return ref;
-    }
-
-    private String extractSwitchedBranch(ToolResult result) {
-        if (result == null || !result.success()) {
-            return null;
-        }
-        String output = result.output();
-        if (output == null || output.isBlank()) {
-            return null;
-        }
-        String prefix = "Switched workspace branch to:";
-        int idx = output.indexOf(prefix);
-        if (idx < 0) {
-            return null;
-        }
-        String branch = output.substring(idx + prefix.length()).trim();
-        return normalizeBranchRef(branch);
-    }
-
-    private String describeToolFailure(ToolResult result) {
-        if (result == null) {
-            return "unknown tool failure";
-        }
-        String error = result.error();
-        if (error != null && !error.isBlank()) {
-            return error;
-        }
-        String output = result.output();
-        if (output != null && !output.isBlank()) {
-            return output;
-        }
-        return "tool returned no details";
+        return BranchRefs.normalize(ref);
     }
 
     private boolean isMcpTool(String toolName) {
-        return mcpOrchestrationService != null && mcpOrchestrationService.isMcpTool(mcpToolCatalog, toolName);
+        return McpTools.isMcpTool(mcpOrchestrationService, mcpToolCatalog, toolName);
     }
 
     /**
      * Result of processing an optional branch-switch request from AI context tools.
-     *
-     * @param initialBranch        branch used before evaluating branch-switcher requests
-     * @param selectedBranch       final selected base branch after evaluating branch-switcher
-     * @param remainingToolRequests non-branch-switcher tool requests that should still be executed
+     * <p>
+     * Kept as a thin alias around {@link BranchSwitcher.Result} so the public class
+     * surface stays stable for tests and reflective callers.
      */
     private record BranchSwitchResult(String initialBranch,
                                       String selectedBranch,

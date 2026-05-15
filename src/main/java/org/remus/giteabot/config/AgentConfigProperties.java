@@ -57,9 +57,13 @@ public class AgentConfigProperties {
      */
     private ContextConfig context = new ContextConfig();
 
+    /**
+     * Writer-agent specific settings.
+     */
+    private WriterConfig writer = new WriterConfig();
+
     @Data
-    public static class ContextConfig {
-        /**
+    public static class ContextConfig {        /**
          * Maximum number of repository-tree file entries included in agent prompts.
          */
         private int maxTreeFiles = 500;
@@ -78,6 +82,21 @@ public class AgentConfigProperties {
          * Maximum characters included from a single issue comment.
          */
         private int maxSingleIssueCommentChars = 4_000;
+    }
+
+    @Data
+    public static class WriterConfig {
+        /**
+         * Maximum number of context-collection rounds the writer agent will run
+         * before giving up and asking the user for more input.
+         */
+        private int maxToolRounds = 5;
+
+        /**
+         * Maximum number of repository-tree file entries used in the writer's
+         * initial prompt.
+         */
+        private int maxInitialTreeFiles = 100;
     }
 
     @Data
