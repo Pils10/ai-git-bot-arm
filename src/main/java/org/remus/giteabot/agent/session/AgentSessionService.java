@@ -126,11 +126,31 @@ public class AgentSessionService {
     /**
      * Converts stored conversation messages to provider-agnostic AI message format.
      * Messages are sorted by creation time to maintain conversation order.
+     *
+     * <p><strong>Tool-flow messages are intentionally dropped:</strong> the
+     * persisted {@link ConversationMessage} entity only stores {@code role}
+     * and {@code content} — it does <em>not</em> preserve the native
+     * {@code tool_calls} payload of assistant turns nor the
+     * {@code tool_call_id} of {@code role:"tool"} turns. Replaying such
+     * orphaned messages to OpenAI/Anthropic in a follow-up run would fail
+     * with errors like
+     * <em>"messages with role 'tool' must be a response to a preceeding
+     * message with 'tool_calls'"</em>. Since prior tool executions have
+     * already been committed/pushed and the agent can re-discover state via
+     * tools, we strip:
+     * <ul>
+     *   <li>every {@code role:"tool"} message,</li>
+     *   <li>assistant messages whose content is blank (these were
+     *       tool-call-only turns whose {@code tool_calls} payload is lost).</li>
+     * </ul>
      */
     public List<AiMessage> toAiMessages(AgentSession session) {
         return session.getMessages().stream()
                 .sorted(Comparator.comparing(ConversationMessage::getCreatedAt,
                         Comparator.nullsFirst(Comparator.naturalOrder())))
+                .filter(m -> !"tool".equalsIgnoreCase(m.getRole()))
+                .filter(m -> !("assistant".equalsIgnoreCase(m.getRole())
+                        && (m.getContent() == null || m.getContent().isBlank())))
                 .map(m -> AiMessage.builder()
                         .role(m.getRole())
                         .content(m.getContent())
