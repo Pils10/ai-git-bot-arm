@@ -60,7 +60,8 @@ public class WriterPromptBuilder {
 
     public String buildClarifyingQuestionComment(WriterPlan plan) {
         StringBuilder sb = new StringBuilder("🤖 **AI Technical Writer**\n\n");
-        if (plan.getQualityAssessment() != null && !plan.getQualityAssessment().isBlank()) {
+        boolean hasAssessment = plan.getQualityAssessment() != null && !plan.getQualityAssessment().isBlank();
+        if (hasAssessment) {
             sb.append("**Quality assessment:** ").append(plan.getQualityAssessment()).append("\n\n");
         }
         List<String> questions = plan.getClarifyingQuestions();
@@ -72,14 +73,16 @@ public class WriterPromptBuilder {
                 }
                 sb.append("- ").append(question).append("\n");
             }
-        } else {
-            // No structured questions returned by the model. Surface whatever
-            // free-form text we have (qualityAssessment) instead of posting an
-            // empty bullet list and ask for additional context generically.
+        } else if (!hasAssessment) {
+            // Neither structured questions nor free-form assessment: ask the
+            // author generically for more context so the comment is never empty.
             sb.append("I do not yet have enough information to draft an improved issue. ")
                     .append("Could you please add more context (acceptance criteria, intended user, ")
                     .append("affected components, examples) and mention me again?\n");
         }
+        // If we have an assessment but no structured questions, the assessment
+        // itself typically already lists the open points — don't append a second
+        // boilerplate paragraph that would duplicate or contradict it.
         return sb.toString();
     }
 

@@ -35,19 +35,24 @@ public class WriterResponseParser {
         }
         String json = extractJson(aiResponse);
         if (json == null) {
+            // Plain-text reply (no JSON). Surface it verbatim as the quality
+            // assessment and leave clarifyingQuestions empty — the strategy
+            // still takes the clarifying-comment branch because readyToCreate
+            // defaults to false. Storing the same text in both fields caused
+            // the prose to be rendered twice in the posted comment.
             return WriterPlan.builder()
                     .qualityAssessment(aiResponse.strip())
-                    .clarifyingQuestions(List.of(aiResponse.strip()))
+                    .clarifyingQuestions(List.of())
                     .build();
         }
         try {
             // Step 5: schema validation – observe-only by default. In enforce
             // mode we treat the response like an unparseable payload and fall
-            // back to the question-only WriterPlan.
+            // back to the assessment-only WriterPlan.
             if (!validateAgainstSchema(json)) {
                 return WriterPlan.builder()
                         .qualityAssessment(aiResponse.strip())
-                        .clarifyingQuestions(List.of(aiResponse.strip()))
+                        .clarifyingQuestions(List.of())
                         .build();
             }
             AiWriterResponse response = objectMapper.readValue(json, AiWriterResponse.class);
@@ -65,7 +70,7 @@ public class WriterResponseParser {
             log.warn("Failed to parse writer response JSON: {}", e.getMessage());
             return WriterPlan.builder()
                     .qualityAssessment(aiResponse.strip())
-                    .clarifyingQuestions(List.of(aiResponse.strip()))
+                    .clarifyingQuestions(List.of())
                     .build();
         }
     }
