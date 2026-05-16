@@ -8,6 +8,7 @@ import org.remus.giteabot.ai.ChatTurn;
 import org.remus.giteabot.ai.StopReason;
 import org.remus.giteabot.ai.ToolCall;
 import org.remus.giteabot.ai.ToolDescriptor;
+import org.remus.giteabot.ai.ToolNameSanitizer;
 import org.remus.giteabot.agent.shared.AgentJackson;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
@@ -150,7 +151,7 @@ public class OpenAiClient extends AbstractAiClient {
         return OpenAiRequest.Tool.builder()
                 .type("function")
                 .function(OpenAiRequest.Function.builder()
-                        .name(descriptor.name())
+                        .name(ToolNameSanitizer.sanitize(descriptor.name()))
                         .description(descriptor.description())
                         .parameters(descriptor.jsonSchema())
                         .build())
@@ -168,7 +169,7 @@ public class OpenAiClient extends AbstractAiClient {
                 .id(call.id())
                 .type("function")
                 .function(OpenAiRequest.FunctionCall.builder()
-                        .name(call.name())
+                        .name(ToolNameSanitizer.sanitize(call.name()))
                         .arguments(args)
                         .build())
                 .build();
@@ -201,7 +202,8 @@ public class OpenAiClient extends AbstractAiClient {
                             tcr.getFunction().getName(), e.getMessage());
                     args = jackson.createObjectNode();
                 }
-                calls.add(new ToolCall(tcr.getId(), tcr.getFunction().getName(), args));
+                calls.add(new ToolCall(tcr.getId(),
+                        ToolNameSanitizer.desanitize(tcr.getFunction().getName()), args));
             }
             if (!calls.isEmpty()) {
                 reason = StopReason.TOOL_USE;

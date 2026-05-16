@@ -11,6 +11,7 @@ import org.remus.giteabot.ai.ChatTurn;
 import org.remus.giteabot.ai.StopReason;
 import org.remus.giteabot.ai.ToolCall;
 import org.remus.giteabot.ai.ToolDescriptor;
+import org.remus.giteabot.ai.ToolNameSanitizer;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
 
@@ -42,6 +43,14 @@ public class GoogleAiClient extends AbstractAiClient {
      * request with {@code "Function call is missing a thought_signature"}.
      */
     private static final String THOUGHT_SIGNATURE_KEY = "thoughtSignature";
+
+    private static String sanitizeFunctionName(String name) {
+        return ToolNameSanitizer.sanitize(name);
+    }
+
+    private static String desanitizeFunctionName(String name) {
+        return ToolNameSanitizer.desanitize(name);
+    }
 
     private final RestClient restClient;
     private final boolean nativeToolsEnabled;
@@ -170,7 +179,7 @@ public class GoogleAiClient extends AbstractAiClient {
                         .role("user")
                         .parts(List.of(GoogleAiRequest.Part.builder()
                                 .functionResponse(GoogleAiRequest.FunctionResponse.builder()
-                                        .name(callNameFor(m, "tool"))
+                                        .name(sanitizeFunctionName(callNameFor(m, "tool")))
                                         .response(response)
                                         .build())
                                 .build()))
@@ -190,7 +199,7 @@ public class GoogleAiClient extends AbstractAiClient {
                             ? call.providerMetadata().get(THOUGHT_SIGNATURE_KEY) : null;
                     parts.add(GoogleAiRequest.Part.builder()
                             .functionCall(GoogleAiRequest.FunctionCall.builder()
-                                    .name(call.name())
+                                    .name(sanitizeFunctionName(call.name()))
                                     .args(call.args() != null
                                             ? jackson3.convertValue(call.args(), Map.class)
                                             : Map.of())
@@ -213,9 +222,12 @@ public class GoogleAiClient extends AbstractAiClient {
 
     private String callNameFor(AiMessage m, String fallback) {
         // Tool-result messages don't directly know the call name; encode it in
-        // the toolCallId or default to a generic value.
+        // the toolCallId or default to a generic value. The synthetic id has the
+        // shape "<name>:<8-hex-uuid>", and the name itself may contain colons
+        // (e.g. MCP tools like "mcp:github:issue_read"), so split at the LAST
+        // colon to recover the original function name intact.
         if (m.getToolCallId() != null && m.getToolCallId().contains(":")) {
-            return m.getToolCallId().substring(0, m.getToolCallId().indexOf(':'));
+            return m.getToolCallId().substring(0, m.getToolCallId().lastIndexOf(':'));
         }
         return fallback;
     }
@@ -230,7 +242,7 @@ public class GoogleAiClient extends AbstractAiClient {
             schema = Map.of("type", "object");
         }
         return GoogleAiRequest.FunctionDeclaration.builder()
-                .name(descriptor.name())
+                .name(sanitizeFunctionName(descriptor.name()))
                 .description(descriptor.description())
                 .parameters(schema)
                 .build();
@@ -256,13 +268,11 @@ public class GoogleAiClient extends AbstractAiClient {
                 Map<String, Object> args = part.getFunctionCall().getArgs() != null
                         ? part.getFunctionCall().getArgs() : new LinkedHashMap<>();
                 tools.jackson.databind.JsonNode args3 = jackson3.valueToTree(args);
-                // Gemini's functionCall response does not carry a per-call id (unlike
-                // OpenAI / Anthropic). Synthesise one as "<name>:<random-suffix>" so
-                // callNameFor() can recover the function name from the prefix while
-                // the suffix stays globally unique across rounds. A plain incrementing
-                // counter would collide across turns (the loop creates a fresh
-                // ChatTurn per round) and surface as duplicate ids in issue comments.
-                String syntheticId = part.getFunctionCall().getName()
+                // Reverse the colon-sanitisation applied in toFunctionDeclaration so
+                // the rest of the system sees the original tool name (e.g. MCP tools
+                // such as "mcp:github:issue_read" were sent as "mcp__github__issue_read").
+                String originalName = desanitizeFunctionName(part.getFunctionCall().getName());
+                String syntheticId = originalName
                         + ":" + java.util.UUID.randomUUID().toString().substring(0, 8);
                 // Gemini 3.x attaches a thoughtSignature to every functionCall part
                 // and rejects subsequent requests that replay the call without it.
@@ -274,7 +284,7 @@ public class GoogleAiClient extends AbstractAiClient {
                         : null;
                 calls.add(new ToolCall(
                         syntheticId,
-                        part.getFunctionCall().getName(),
+                        originalName,
                         args3,
                         meta));
             }

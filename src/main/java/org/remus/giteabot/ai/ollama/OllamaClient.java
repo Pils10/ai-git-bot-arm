@@ -9,6 +9,7 @@ import org.remus.giteabot.ai.ChatTurn;
 import org.remus.giteabot.ai.StopReason;
 import org.remus.giteabot.ai.ToolCall;
 import org.remus.giteabot.ai.ToolDescriptor;
+import org.remus.giteabot.ai.ToolNameSanitizer;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
 import tools.jackson.databind.JsonNode;
@@ -167,7 +168,7 @@ public class OllamaClient extends AbstractAiClient {
         return OllamaRequest.Tool.builder()
                 .type("function")
                 .function(OllamaRequest.Function.builder()
-                        .name(descriptor.name())
+                        .name(ToolNameSanitizer.sanitize(descriptor.name()))
                         .description(descriptor.description())
                         .parameters(schema)
                         .build())
@@ -184,7 +185,7 @@ public class OllamaClient extends AbstractAiClient {
         }
         return OllamaRequest.ToolCallPayload.builder()
                 .function(OllamaRequest.FunctionCall.builder()
-                        .name(call.name())
+                        .name(ToolNameSanitizer.sanitize(call.name()))
                         .arguments(args)
                         .build())
                 .build();
@@ -208,8 +209,10 @@ public class OllamaClient extends AbstractAiClient {
                         ? tcr.getFunction().getArguments() : new LinkedHashMap<>();
                 JsonNode args = jackson.valueToTree(raw);
                 // Ollama doesn't supply call ids; synthesise one for round-trip correlation.
-                calls.add(new ToolCall(tcr.getFunction().getName() + ":" + (idx++),
-                        tcr.getFunction().getName(), args));
+                // Translate any sanitised colons back so the rest of the system sees the
+                // canonical name (e.g. MCP tools like "mcp:github:issue_read").
+                String originalName = ToolNameSanitizer.desanitize(tcr.getFunction().getName());
+                calls.add(new ToolCall(originalName + ":" + (idx++), originalName, args));
             }
         }
         StopReason reason = mapStopReason(response.getDoneReason(), !calls.isEmpty());

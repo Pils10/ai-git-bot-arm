@@ -9,6 +9,7 @@ import org.remus.giteabot.ai.ChatTurn;
 import org.remus.giteabot.ai.StopReason;
 import org.remus.giteabot.ai.ToolCall;
 import org.remus.giteabot.ai.ToolDescriptor;
+import org.remus.giteabot.ai.ToolNameSanitizer;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
 import tools.jackson.databind.JsonNode;
@@ -224,7 +225,7 @@ public class AnthropicAiClient extends AbstractAiClient {
                     blocks.add(AnthropicRequest.ContentBlock.builder()
                             .type("tool_use")
                             .id(call.id())
-                            .name(call.name())
+                            .name(ToolNameSanitizer.sanitize(call.name()))
                             .input(call.args() != null
                                     ? jackson.convertValue(call.args(), Map.class)
                                     : Map.of())
@@ -363,7 +364,7 @@ public class AnthropicAiClient extends AbstractAiClient {
             schema = Map.of("type", "object");
         }
         return AnthropicRequest.Tool.builder()
-                .name(descriptor.name())
+                .name(ToolNameSanitizer.sanitize(descriptor.name()))
                 .description(descriptor.description())
                 .inputSchema(schema)
                 .build();
@@ -384,7 +385,8 @@ public class AnthropicAiClient extends AbstractAiClient {
                 Map<String, Object> input = block.getInput() != null
                         ? block.getInput() : new LinkedHashMap<>();
                 JsonNode args = jackson.valueToTree(input);
-                calls.add(new ToolCall(block.getId(), block.getName(), args));
+                calls.add(new ToolCall(block.getId(),
+                        ToolNameSanitizer.desanitize(block.getName()), args));
             }
         }
         StopReason reason = mapStopReason(response.getStopReason());
