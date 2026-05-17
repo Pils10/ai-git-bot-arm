@@ -19,6 +19,7 @@ import org.remus.giteabot.agent.shared.BranchSwitcher;
 import org.remus.giteabot.agent.shared.McpTools;
 import org.remus.giteabot.agent.shared.ToolFailures;
 import org.remus.giteabot.agent.tools.AgentToolRouter;
+import org.remus.giteabot.agent.tools.ToolCatalog;
 import org.remus.giteabot.agent.validation.ToolExecutionService;
 import org.remus.giteabot.agent.validation.ToolResult;
 import org.remus.giteabot.agent.validation.WorkspaceResult;
@@ -66,6 +67,7 @@ public class IssueImplementationService {
     private final AgentConfigProperties agentConfig;
     private final AgentSessionService sessionService;
     private final ToolExecutionService toolExecutionService;
+    private final ToolCatalog toolCatalog;
     private final WorkspaceService workspaceService;
     private final String issueAgentSystemPrompt;
     private final String botUsername;
@@ -89,6 +91,7 @@ public class IssueImplementationService {
                                       AgentConfigProperties agentConfig,
                                       AgentSessionService sessionService,
                                       ToolExecutionService toolExecutionService,
+                                      ToolCatalog toolCatalog,
                                       WorkspaceService workspaceService) {
         this.repositoryClient = context.repositoryClient();
         this.aiClient = context.aiClient();
@@ -96,6 +99,7 @@ public class IssueImplementationService {
         this.agentConfig = agentConfig;
         this.sessionService = sessionService;
         this.toolExecutionService = toolExecutionService;
+        this.toolCatalog = toolCatalog;
         this.workspaceService = workspaceService;
         this.issueAgentSystemPrompt = context.issueAgentSystemPrompt();
         this.botUsername = context.botUsername();
@@ -107,10 +111,10 @@ public class IssueImplementationService {
 
         this.responseParser = new AiResponseParser();
         this.promptBuilder = new AgentPromptBuilder(agentConfig != null ? agentConfig.getContext() : null);
-        this.notificationService = new IssueNotificationService(this.repositoryClient, responseParser, toolExecutionService);
+        this.notificationService = new IssueNotificationService(this.repositoryClient, responseParser, toolCatalog);
         this.errorNotificationService = new AgentErrorNotificationService(this.repositoryClient);
         this.branchSwitcher = new BranchSwitcher(toolExecutionService);
-        this.toolRouter = new AgentToolRouter(toolExecutionService, this.mcpOrchestrationService,
+        this.toolRouter = new AgentToolRouter(toolExecutionService, toolCatalog, this.mcpOrchestrationService,
                 this.mcpConfiguration, this.mcpToolCatalog, this.repositoryClient);
         this.criticAgent = new CriticAgent(
                 agentConfig != null ? agentConfig.getCritic() : null,
@@ -298,7 +302,7 @@ public class IssueImplementationService {
                 sessionService,
                 branchSwitcher,
                 toolRouter,
-                toolExecutionService,
+                toolCatalog,
                 workspaceService,
                 agentConfig,
                 mcpOrchestrationService,
@@ -447,13 +451,12 @@ public class IssueImplementationService {
     // ---- helpers ---------------------------------------------------------
 
     private String buildToolsInfo() {
-        List<String> availableTools = toolExecutionService.getAvailableTools();
         return "\n\n**Available file tools** (all silent — results go back to you only): "
-                + String.join(", ", toolExecutionService.getAvailableFileTools())
+                + String.join(", ", toolCatalog.fileToolNames())
                 + "\n**Available context tools** (silent): "
-                + String.join(", ", toolExecutionService.getAvailableContextTools())
+                + String.join(", ", toolCatalog.contextToolNames())
                 + "\n**Available validation tools** (results posted as comments): "
-                + String.join(", ", availableTools)
+                + String.join(", ", toolCatalog.validationToolNames())
                 + mcpToolPromptRenderer.render(mcpToolCatalog);
     }
 

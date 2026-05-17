@@ -8,29 +8,42 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.remus.giteabot.agent.session.AgentSession;
 import org.remus.giteabot.agent.session.AgentSessionService;
-import org.remus.giteabot.agent.validation.ToolResult;
 import org.remus.giteabot.agent.validation.ToolExecutionService;
-import org.remus.giteabot.agent.validation.WorkspaceService;
+import org.remus.giteabot.agent.validation.ToolResult;
 import org.remus.giteabot.agent.validation.WorkspaceResult;
+import org.remus.giteabot.agent.validation.WorkspaceService;
 import org.remus.giteabot.ai.AiClient;
 import org.remus.giteabot.ai.AiMessage;
 import org.remus.giteabot.config.AgentConfigProperties;
 import org.remus.giteabot.config.PromptService;
-import org.remus.giteabot.repository.RepositoryApiClient;
 import org.remus.giteabot.gitea.model.WebhookPayload;
 import org.remus.giteabot.mcp.McpOrchestrationService;
 import org.remus.giteabot.mcp.McpToolCatalog;
 import org.remus.giteabot.mcp.McpToolDefinition;
+import org.remus.giteabot.repository.RepositoryApiClient;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.*;
+import static org.mockito.Mockito.any;
+import static org.mockito.Mockito.anyBoolean;
+import static org.mockito.Mockito.anyInt;
+import static org.mockito.Mockito.anyList;
+import static org.mockito.Mockito.anyString;
+import static org.mockito.Mockito.atLeast;
+import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.contains;
+import static org.mockito.Mockito.eq;
+import static org.mockito.Mockito.isNull;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class IssueImplementationServiceTest {
@@ -42,6 +55,7 @@ class IssueImplementationServiceTest {
     @Mock private ToolExecutionService toolExecutionService;
     @Mock private WorkspaceService workspaceService;
     @Mock private McpOrchestrationService mcpOrchestrationService;
+    private org.remus.giteabot.agent.tools.ToolCatalog toolCatalog;
 
     private IssueImplementationService service;
 
@@ -53,18 +67,14 @@ class IssueImplementationServiceTest {
         agentConfig.setEnabled(true);
         agentConfig.setMaxFiles(10);
         agentConfig.setBranchPrefix("ai-agent/");
+        // Real catalog – classification (is*Tool, name lists) is no longer mocked.
+        // TES is mocked only for execution methods.
+        toolCatalog = new org.remus.giteabot.agent.tools.ToolCatalog(agentConfig);
         IssueImplementationContext context = new IssueImplementationContext(
                 repositoryClient, aiClient, null, null, null, null, McpToolCatalog.empty());
         service = new IssueImplementationService(context, promptService, agentConfig,
-                sessionService, toolExecutionService, workspaceService);
+                sessionService, toolExecutionService, toolCatalog, workspaceService);
 
-        // Default stubs – marked lenient so tests that don't reach buildToolsInfo() don't fail
-        lenient().when(toolExecutionService.getAvailableTools()).thenReturn(List.of("mvn"));
-        lenient().when(toolExecutionService.getAvailableFileTools()).thenReturn(List.of("write-file", "patch-file", "mkdir", "delete-file"));
-        lenient().when(toolExecutionService.getAvailableContextTools()).thenReturn(List.of("branch-switcher", "rg", "cat", "find", "tree"));
-        // isValidationTool is the authoritative check for validation tools; delegate to getAvailableTools()
-        lenient().when(toolExecutionService.isValidationTool(anyString()))
-                .thenAnswer(inv -> Objects.equals("mvn", inv.getArgument(0)));
         lenient().when(workspaceService.hasUncommittedChanges(any())).thenReturn(true);
     }
 
@@ -105,11 +115,6 @@ class IssueImplementationServiceTest {
                 .thenReturn(implResponse);
 
         // write-file is a file tool → executeFileTool
-        when(toolExecutionService.isFileTool("write-file")).thenReturn(true);
-        when(toolExecutionService.isFileTool("mvn")).thenReturn(false);
-        when(toolExecutionService.isContextTool("mvn")).thenReturn(false);
-        when(toolExecutionService.isSilentTool("write-file")).thenReturn(true);
-        when(toolExecutionService.isSilentTool("mvn")).thenReturn(false);
         when(toolExecutionService.executeFileTool(eq(FAKE_WORKSPACE), eq("write-file"), anyList()))
                 .thenReturn(new ToolResult(true, 0, "File written: src/Feature.java", ""));
         when(toolExecutionService.executeTool(eq(FAKE_WORKSPACE), eq("mvn"), anyList()))
@@ -182,11 +187,6 @@ class IssueImplementationServiceTest {
                 """;
         when(aiClient.chat(anyList(), anyString(), anyString(), isNull(), anyInt()))
                 .thenReturn(implResponse);
-        when(toolExecutionService.isFileTool("write-file")).thenReturn(true);
-        when(toolExecutionService.isFileTool("mvn")).thenReturn(false);
-        when(toolExecutionService.isContextTool("mvn")).thenReturn(false);
-        when(toolExecutionService.isSilentTool("write-file")).thenReturn(true);
-        when(toolExecutionService.isSilentTool("mvn")).thenReturn(false);
         when(toolExecutionService.executeFileTool(eq(FAKE_WORKSPACE), eq("write-file"), anyList()))
                 .thenReturn(new ToolResult(true, 0, "File written", ""));
         when(toolExecutionService.executeTool(eq(FAKE_WORKSPACE), eq("mvn"), anyList()))
@@ -242,13 +242,6 @@ class IssueImplementationServiceTest {
         when(aiClient.chat(anyList(), anyString(), anyString(), isNull(), anyInt()))
                 .thenReturn(failedPatchResponse, fixedWriteResponse);
 
-        when(toolExecutionService.isFileTool("patch-file")).thenReturn(true);
-        when(toolExecutionService.isFileTool("write-file")).thenReturn(true);
-        when(toolExecutionService.isFileTool("mvn")).thenReturn(false);
-        when(toolExecutionService.isContextTool("mvn")).thenReturn(false);
-        when(toolExecutionService.isSilentTool("patch-file")).thenReturn(true);
-        when(toolExecutionService.isSilentTool("write-file")).thenReturn(true);
-        when(toolExecutionService.isSilentTool("mvn")).thenReturn(false);
         when(toolExecutionService.executeFileTool(eq(FAKE_WORKSPACE), eq("patch-file"), anyList()))
                 .thenReturn(new ToolResult(false, 1, "", "patch-file: search text not found in file: README.md"));
         when(toolExecutionService.executeFileTool(eq(FAKE_WORKSPACE), eq("write-file"), anyList()))
@@ -351,11 +344,6 @@ class IssueImplementationServiceTest {
         when(toolExecutionService.executeContextTool(eq(FAKE_WORKSPACE), eq("rg"), eq(List.of("Feature", "src"))))
                 .thenReturn(new ToolResult(true, 0, "No matches found for pattern: Feature", ""));
 
-        when(toolExecutionService.isFileTool("write-file")).thenReturn(true);
-        when(toolExecutionService.isFileTool("mvn")).thenReturn(false);
-        when(toolExecutionService.isContextTool("mvn")).thenReturn(false);
-        when(toolExecutionService.isSilentTool("write-file")).thenReturn(true);
-        when(toolExecutionService.isSilentTool("mvn")).thenReturn(false);
         when(toolExecutionService.executeFileTool(eq(FAKE_WORKSPACE), eq("write-file"), anyList()))
                 .thenReturn(new ToolResult(true, 0, "File written: src/Feature.java", ""));
         when(toolExecutionService.executeTool(eq(FAKE_WORKSPACE), eq("mvn"), anyList()))
@@ -413,11 +401,6 @@ class IssueImplementationServiceTest {
         when(toolExecutionService.executeContextTool(eq(FAKE_WORKSPACE), eq("branch-switcher"), eq(List.of("develop"))))
                 .thenReturn(new ToolResult(false, 1, null, null));
 
-        when(toolExecutionService.isFileTool("write-file")).thenReturn(true);
-        when(toolExecutionService.isFileTool("mvn")).thenReturn(false);
-        when(toolExecutionService.isContextTool("mvn")).thenReturn(false);
-        when(toolExecutionService.isSilentTool("write-file")).thenReturn(true);
-        when(toolExecutionService.isSilentTool("mvn")).thenReturn(false);
         when(toolExecutionService.executeFileTool(eq(FAKE_WORKSPACE), eq("write-file"), anyList()))
                 .thenReturn(new ToolResult(true, 0, "File written: src/Feature.java", ""));
         when(toolExecutionService.executeTool(eq(FAKE_WORKSPACE), eq("mvn"), anyList()))
@@ -470,11 +453,6 @@ class IssueImplementationServiceTest {
         when(repositoryClient.getFileContent("testowner", "testrepo", "pom.xml", "release/1.x"))
                 .thenReturn("<project />");
 
-        when(toolExecutionService.isFileTool("write-file")).thenReturn(true);
-        when(toolExecutionService.isFileTool("mvn")).thenReturn(false);
-        when(toolExecutionService.isContextTool("mvn")).thenReturn(false);
-        when(toolExecutionService.isSilentTool("write-file")).thenReturn(true);
-        when(toolExecutionService.isSilentTool("mvn")).thenReturn(false);
         when(toolExecutionService.executeFileTool(eq(FAKE_WORKSPACE), eq("write-file"), anyList()))
                 .thenReturn(new ToolResult(true, 0, "File written: src/Feature.java", ""));
         when(toolExecutionService.executeTool(eq(FAKE_WORKSPACE), eq("mvn"), anyList()))
@@ -537,11 +515,6 @@ class IssueImplementationServiceTest {
         when(aiClient.chat(anyList(), anyString(), anyString(), isNull(), anyInt()))
                 .thenReturn(implResponse);
 
-        when(toolExecutionService.isFileTool("write-file")).thenReturn(true);
-        when(toolExecutionService.isFileTool("mvn")).thenReturn(false);
-        when(toolExecutionService.isContextTool("mvn")).thenReturn(false);
-        when(toolExecutionService.isSilentTool("write-file")).thenReturn(true);
-        when(toolExecutionService.isSilentTool("mvn")).thenReturn(false);
         when(toolExecutionService.executeFileTool(any(), any(), any()))
                 .thenReturn(new ToolResult(true, 0, "ok", ""));
         when(toolExecutionService.executeTool(any(), any(), any()))
@@ -590,14 +563,7 @@ class IssueImplementationServiceTest {
         when(mcpOrchestrationService.isMcpTool(any(McpToolCatalog.class), eq("mcp:github:list_issues"))).thenReturn(true);
         when(mcpOrchestrationService.executeTool(any(), any(), eq("mcp:github:list_issues"), anyList()))
                 .thenReturn(new ToolResult(false, 1, "", "cursor pagination required"));
-        when(toolExecutionService.isSilentTool("mcp:github:list_issues")).thenReturn(true);
-        when(toolExecutionService.isFileTool("mcp:github:list_issues")).thenReturn(false);
 
-        when(toolExecutionService.isFileTool("write-file")).thenReturn(true);
-        when(toolExecutionService.isFileTool("mvn")).thenReturn(false);
-        when(toolExecutionService.isContextTool("mvn")).thenReturn(false);
-        when(toolExecutionService.isSilentTool("write-file")).thenReturn(true);
-        when(toolExecutionService.isSilentTool("mvn")).thenReturn(false);
         when(toolExecutionService.executeFileTool(eq(FAKE_WORKSPACE), eq("write-file"), anyList()))
                 .thenReturn(new ToolResult(true, 0, "File written", ""));
         when(toolExecutionService.executeTool(eq(FAKE_WORKSPACE), eq("mvn"), anyList()))
@@ -671,11 +637,6 @@ class IssueImplementationServiceTest {
                 .thenReturn(new ToolResult(true, 0, "src/Config.java:12: ConfigService configService", ""));
 
         // File tool stubs for second round
-        when(toolExecutionService.isFileTool("patch-file")).thenReturn(true);
-        when(toolExecutionService.isFileTool("mvn")).thenReturn(false);
-        when(toolExecutionService.isContextTool("mvn")).thenReturn(false);
-        when(toolExecutionService.isSilentTool("patch-file")).thenReturn(true);
-        when(toolExecutionService.isSilentTool("mvn")).thenReturn(false);
         when(toolExecutionService.executeFileTool(eq(FAKE_WORKSPACE), eq("patch-file"), anyList()))
                 .thenReturn(new ToolResult(true, 0, "File patched", ""));
         when(toolExecutionService.executeTool(eq(FAKE_WORKSPACE), eq("mvn"), anyList()))
@@ -743,11 +704,6 @@ class IssueImplementationServiceTest {
         when(repositoryClient.getFileContent("testowner", "testrepo", "README.md", "ai-agent/issue-42"))
                 .thenReturn("branch-specific readme");
 
-        when(toolExecutionService.isFileTool("patch-file")).thenReturn(true);
-        when(toolExecutionService.isFileTool("mvn")).thenReturn(false);
-        when(toolExecutionService.isContextTool("mvn")).thenReturn(false);
-        when(toolExecutionService.isSilentTool("patch-file")).thenReturn(true);
-        when(toolExecutionService.isSilentTool("mvn")).thenReturn(false);
         when(toolExecutionService.executeFileTool(eq(FAKE_WORKSPACE), eq("patch-file"), anyList()))
                 .thenReturn(new ToolResult(true, 0, "File patched", ""));
         when(toolExecutionService.executeTool(eq(FAKE_WORKSPACE), eq("mvn"), anyList()))
@@ -824,14 +780,7 @@ class IssueImplementationServiceTest {
         when(mcpOrchestrationService.isMcpTool(any(McpToolCatalog.class), eq("mcp:github:list_issues"))).thenReturn(true);
         when(mcpOrchestrationService.executeTool(any(), any(), eq("mcp:github:list_issues"), anyList()))
                 .thenReturn(new ToolResult(false, 1, "", "cursor pagination required"));
-        when(toolExecutionService.isSilentTool("mcp:github:list_issues")).thenReturn(true);
-        when(toolExecutionService.isFileTool("mcp:github:list_issues")).thenReturn(false);
 
-        when(toolExecutionService.isFileTool("patch-file")).thenReturn(true);
-        when(toolExecutionService.isFileTool("mvn")).thenReturn(false);
-        when(toolExecutionService.isContextTool("mvn")).thenReturn(false);
-        when(toolExecutionService.isSilentTool("patch-file")).thenReturn(true);
-        when(toolExecutionService.isSilentTool("mvn")).thenReturn(false);
         when(toolExecutionService.executeFileTool(eq(FAKE_WORKSPACE), eq("patch-file"), anyList()))
                 .thenReturn(new ToolResult(true, 0, "File patched", ""));
         when(toolExecutionService.executeTool(eq(FAKE_WORKSPACE), eq("mvn"), anyList()))
@@ -917,7 +866,7 @@ class IssueImplementationServiceTest {
         IssueImplementationContext context = new IssueImplementationContext(
                 repositoryClient, aiClient, null, null, mcpOrchestrationService, null, catalog);
         return new IssueImplementationService(context, promptService, agentConfig,
-                sessionService, toolExecutionService, workspaceService);
+                sessionService, toolExecutionService, toolCatalog, workspaceService);
     }
 
     private IssueImplementationService createServiceWithBotUsername(String botUsername) {
@@ -928,6 +877,6 @@ class IssueImplementationServiceTest {
         IssueImplementationContext context = new IssueImplementationContext(
                 repositoryClient, aiClient, null, botUsername, null, null, McpToolCatalog.empty());
         return new IssueImplementationService(context, promptService, agentConfig,
-                sessionService, toolExecutionService, workspaceService);
+                sessionService, toolExecutionService, toolCatalog, workspaceService);
     }
 }

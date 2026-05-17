@@ -21,13 +21,9 @@ class ToolExecutionServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new ToolExecutionService(new AgentConfigProperties());
-    }
-
-    @Test
-    void getAvailableContextTools_containsExpectedTools() {
-        assertThat(service.getAvailableContextTools())
-                .contains("rg", "grep", "find", "cat", "git-log", "git-blame", "tree", "branch-switcher");
+        AgentConfigProperties config = new AgentConfigProperties();
+        service = new ToolExecutionService(config,
+                new org.remus.giteabot.agent.tools.ToolCatalog(config));
     }
 
     @Test
@@ -294,43 +290,5 @@ class ToolExecutionServiceTest {
 
         assertThat(result.success()).isFalse();
         assertThat(result.error()).contains("escapes");
-    }
-
-    @Test
-    void isFileTool_returnsCorrectly() {
-        assertThat(service.isFileTool("write-file")).isTrue();
-        assertThat(service.isFileTool("patch-file")).isTrue();
-        assertThat(service.isFileTool("mkdir")).isTrue();
-        assertThat(service.isFileTool("delete-file")).isTrue();
-        assertThat(service.isFileTool("mvn")).isFalse();
-        assertThat(service.isFileTool("rg")).isFalse();
-        assertThat(service.isFileTool(null)).isFalse();
-    }
-
-    @Test
-    void isSilentTool_fileToolsAreSilent() {
-        assertThat(service.isSilentTool("write-file")).isTrue();
-        assertThat(service.isSilentTool("cat")).isTrue();
-        assertThat(service.isSilentTool("mvn")).isFalse();
-    }
-
-    @Test
-    void isValidationTool_recognizesConfiguredTools() {
-        // mvn is in the configured available-tools list (set up via agentConfig in setUp)
-        assertThat(service.isValidationTool("mvn")).isTrue();
-        assertThat(service.isValidationTool("dotnet")).isTrue();
-        // file and context tools are NOT validation tools
-        assertThat(service.isValidationTool("write-file")).isFalse();
-        assertThat(service.isValidationTool("cat")).isFalse();
-        assertThat(service.isValidationTool("rg")).isFalse();
-        assertThat(service.isValidationTool(null)).isFalse();
-    }
-
-    @Test
-    void isValidationTool_notEquivalentToNotSilentTool() {
-        // An unknown tool that is also not in the silent lists must NOT count as a validation tool.
-        // Previously '!isSilentTool' was used which would incorrectly classify unknown tools.
-        assertThat(service.isSilentTool("unknown-tool")).isFalse();    // not silent
-        assertThat(service.isValidationTool("unknown-tool")).isFalse(); // but also not a validation tool
     }
 }

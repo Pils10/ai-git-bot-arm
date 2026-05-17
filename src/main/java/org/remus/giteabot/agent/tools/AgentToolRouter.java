@@ -26,8 +26,9 @@ import java.util.Map;
  *     {@code WriterAgentService.executeTools}.</li>
  * </ul>
  * Behaviour is deliberately byte-equivalent to the previous in-line dispatch;
- * the abstraction exists so future steps can introduce typed {@link AgentTool}s,
- * tracing, retries and policy without further duplication.
+ * the abstraction exists so future steps can introduce tracing, retries and
+ * policy without further duplication. Tool classification is delegated to
+ * {@link ToolCatalog} so categorisation lives in exactly one place.
  */
 @Slf4j
 public class AgentToolRouter {
@@ -35,17 +36,20 @@ public class AgentToolRouter {
     public enum Mode { CODING, WRITER }
 
     private final ToolExecutionService toolExecutionService;
+    private final ToolCatalog catalog;
     private final McpOrchestrationService mcpOrchestrationService;
     private final McpConfiguration mcpConfiguration;
     private final McpToolCatalog mcpToolCatalog;
     private final RepositoryApiClient repositoryClient;
 
     public AgentToolRouter(ToolExecutionService toolExecutionService,
+                           ToolCatalog catalog,
                            McpOrchestrationService mcpOrchestrationService,
                            McpConfiguration mcpConfiguration,
                            McpToolCatalog mcpToolCatalog,
                            RepositoryApiClient repositoryClient) {
         this.toolExecutionService = toolExecutionService;
+        this.catalog = catalog;
         this.mcpOrchestrationService = mcpOrchestrationService;
         this.mcpConfiguration = mcpConfiguration;
         this.mcpToolCatalog = mcpToolCatalog != null ? mcpToolCatalog : McpToolCatalog.empty();
@@ -79,13 +83,16 @@ public class AgentToolRouter {
         String tool = ctx.tool();
         List<String> args = ctx.args();
         log.debug("Executing tool: {} {}", tool, String.join(" ", args));
-        if (toolExecutionService.isFileTool(tool)) {
+        // Dispatch order: file > MCP > context > validation. Identical to the
+        // historic in-line dispatch but driven by the central ToolCatalog
+        // instead of stacking three boolean checks.
+        if (catalog.isFile(tool)) {
             return toolExecutionService.executeFileTool(ctx.workspaceDir(), tool, args);
         }
         if (isMcpTool(tool)) {
             return mcpOrchestrationService.executeTool(mcpConfiguration, mcpToolCatalog, tool, args);
         }
-        if (toolExecutionService.isContextTool(tool)) {
+        if (catalog.isContext(tool)) {
             return toolExecutionService.executeContextTool(ctx.workspaceDir(), tool, args);
         }
         return toolExecutionService.executeTool(ctx.workspaceDir(), tool, args);
@@ -112,12 +119,12 @@ public class AgentToolRouter {
         if (isMcpTool(original)) {
             return mcpOrchestrationService.executeTool(mcpConfiguration, mcpToolCatalog, original, args);
         }
-        if (toolExecutionService.isContextTool(lower)) {
+        if (catalog.isContext(lower)) {
             return toolExecutionService.executeContextTool(ctx.workspaceDir(), lower, args);
         }
         return new ToolResult(false, -1, "",
                 "Writer tool '" + original + "' is not available. Available tools: get-issue, "
-                        + "search-issues, " + String.join(", ", toolExecutionService.getAvailableContextTools()));
+                        + "search-issues, " + String.join(", ", catalog.contextToolNames()));
     }
 
     private Long parseIssueNumber(List<String> args, Long defaultIssueNumber) {
