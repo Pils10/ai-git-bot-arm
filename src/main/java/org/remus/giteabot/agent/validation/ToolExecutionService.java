@@ -1,6 +1,7 @@
 package org.remus.giteabot.agent.validation;
 
 import lombok.extern.slf4j.Slf4j;
+import org.remus.giteabot.agent.tools.ToolCatalog;
 import org.remus.giteabot.config.AgentConfigProperties;
 import org.springframework.stereotype.Service;
 
@@ -23,8 +24,11 @@ import java.util.stream.Stream;
 /**
  * Executes external tools (e.g. build / test commands) requested by the AI agent.
  * <p>
- * The list of allowed tools is configured via
- * {@link AgentConfigProperties.ValidationConfig#getAvailableTools()}.
+ * Pure executor: classification of tool names lives in {@link ToolCatalog}
+ * and callers that need it should inject the catalog directly. This service
+ * no longer exposes {@code is*Tool} / {@code getAvailable*Tools} forwarders —
+ * having two ways to ask the same question was the root cause of duplicated
+ * taxonomy lists across the codebase.
  */
 @Slf4j
 @Service
@@ -37,89 +41,22 @@ public class ToolExecutionService {
     private static final int DEFAULT_GIT_LOG_LIMIT = 10;
     private static final long MAX_TEXT_FILE_SIZE_BYTES = 1_000_000;
     private static final Pattern SIMPLE_BRANCH_NAME_PATTERN = Pattern.compile("[A-Za-z0-9._\\-/]+");
-    // Includes branch-switcher although it mutates workspace state; it is still executed in the
-    // context phase because it affects which branch subsequent context reads should target.
-    private static final List<String> AVAILABLE_CONTEXT_TOOLS = List.of(
-            "rg", "ripgrep", "grep", "find", "cat", "git-log", "git-blame", "tree", "branch-switcher");
-    /** File-modification tools — run in the workspace but results are NOT posted as public comments. */
-    private static final List<String> AVAILABLE_FILE_TOOLS = List.of(
-            "write-file", "patch-file", "mkdir", "delete-file");
 
     private final AgentConfigProperties agentConfig;
+    private final ToolCatalog catalog;
 
-    public ToolExecutionService(AgentConfigProperties agentConfig) {
+    public ToolExecutionService(AgentConfigProperties agentConfig, ToolCatalog catalog) {
         this.agentConfig = agentConfig;
+        this.catalog = catalog;
     }
 
     /**
-     * Returns the list of tools that the AI agent is allowed to invoke.
-     */
-    public List<String> getAvailableTools() {
-        return agentConfig.getValidation().getAvailableTools();
-    }
-
-    /**
-     * Returns the repository exploration tools the AI can use before coding.
-     */
-    public List<String> getAvailableContextTools() {
-        return AVAILABLE_CONTEXT_TOOLS;
-    }
-
-    /**
-     * Returns the file-modification tools the AI can use to create/patch/delete files
-     * in the workspace. Results go back to the AI but are NOT posted as public comments.
-     */
-    public List<String> getAvailableFileTools() {
-        return AVAILABLE_FILE_TOOLS;
-    }
-
-    /**
-     * Returns {@code true} if the given tool name belongs to the read-only context tools
-     * (e.g. {@code cat}, {@code rg}) whose results should not be posted as issue comments.
-     */
-    public boolean isContextTool(String tool) {
-        return AVAILABLE_CONTEXT_TOOLS.contains(tool != null ? tool.strip().toLowerCase() : "");
-    }
-
-    /**
-     * Returns {@code true} if the given tool is a file-modification tool
-     * (write-file, patch-file, mkdir, delete-file).
-     */
-    public boolean isFileTool(String tool) {
-        return AVAILABLE_FILE_TOOLS.contains(tool != null ? tool.strip().toLowerCase() : "");
-    }
-
-    /**
-     * Returns {@code true} if the tool result should NOT be posted as a public issue comment.
-     * Both context tools and file tools are "silent".
-     */
-    public boolean isSilentTool(String tool) {
-        return isContextTool(tool) || isFileTool(tool);
-    }
-    /**
-     * Returns {@code true} if the given tool is a configured validation tool
-     * (i.e. listed in {@link AgentConfigProperties.ValidationConfig#getAvailableTools()},
-     * e.g. {@code mvn}, {@code gradle}, {@code npm}).
-     * <p>
-     * This is the authoritative check for "does this tool count as validation?".
-     * Using {@code !isSilentTool} is <em>not</em> equivalent: a tool could be unknown
-     * to all three categories, and silently falling into the "validation" bucket would
-     * produce incorrect pass/fail semantics.
-     */
-    public boolean isValidationTool(String tool) {
-        return getAvailableTools().contains(tool != null ? tool.strip().toLowerCase() : "");
-    }
-
-    /**
-     * Executes a tool command in the given workspace directory.
-     *
-     * @param workspaceDir The workspace directory
-     * @param tool         The tool to execute (must be in {@link #getAvailableTools()})
-     * @param arguments    The arguments to pass to the tool
-     * @return The execution result
+     * Executes a configured validation tool (mvn, gradle, …) in the given
+     * workspace directory. Rejects tools not in
+     * {@link ToolCatalog#validationToolNames()}.
      */
     public ToolResult executeTool(Path workspaceDir, String tool, List<String> arguments) {
-        List<String> availableTools = getAvailableTools();
+        List<String> availableTools = catalog.validationToolNames();
         if (!availableTools.contains(tool)) {
             return new ToolResult(false, -1,
                     "Tool '" + tool + "' is not available. Available tools: "
@@ -146,10 +83,10 @@ public class ToolExecutionService {
      */
     public ToolResult executeContextTool(Path workspaceDir, String tool, List<String> arguments) {
         String normalizedTool = tool != null ? tool.strip().toLowerCase() : "";
-        if (!AVAILABLE_CONTEXT_TOOLS.contains(normalizedTool)) {
+        if (!catalog.contextToolNames().contains(normalizedTool)) {
             return new ToolResult(false, -1, "",
                     "Repository tool '" + tool + "' is not available. Available tools: "
-                            + String.join(", ", AVAILABLE_CONTEXT_TOOLS));
+                            + String.join(", ", catalog.contextToolNames()));
         }
 
         return switch (normalizedTool) {
@@ -243,16 +180,16 @@ public class ToolExecutionService {
      * public issue comments.
      *
      * @param workspaceDir The workspace directory (cloned repo root)
-     * @param tool         One of the {@link #AVAILABLE_FILE_TOOLS}
+     * @param tool         One of {@link ToolCatalog#fileToolNames()}
      * @param arguments    Tool-specific arguments
      * @return The execution result
      */
     public ToolResult executeFileTool(Path workspaceDir, String tool, List<String> arguments) {
         String normalizedTool = tool != null ? tool.strip().toLowerCase() : "";
-        if (!AVAILABLE_FILE_TOOLS.contains(normalizedTool)) {
+        if (!catalog.fileToolNames().contains(normalizedTool)) {
             return new ToolResult(false, -1, "",
                     "File tool '" + tool + "' is not available. Available file tools: "
-                            + String.join(", ", AVAILABLE_FILE_TOOLS));
+                            + String.join(", ", catalog.fileToolNames()));
         }
         return switch (normalizedTool) {
             case "write-file" -> executeWriteFileTool(workspaceDir, arguments);

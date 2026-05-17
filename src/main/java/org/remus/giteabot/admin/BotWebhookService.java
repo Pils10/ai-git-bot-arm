@@ -4,6 +4,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.remus.giteabot.agent.IssueImplementationContext;
 import org.remus.giteabot.agent.IssueImplementationService;
 import org.remus.giteabot.agent.session.AgentSessionService;
+import org.remus.giteabot.agent.tools.ToolCatalog;
 import org.remus.giteabot.agent.validation.ToolExecutionService;
 import org.remus.giteabot.agent.validation.WorkspaceService;
 import org.remus.giteabot.agent.writerimpl.WriterAgentService;
@@ -45,6 +46,7 @@ public class BotWebhookService {
     private final ReviewConfigProperties reviewConfig;
     private final AgentSessionService agentSessionService;
     private final ToolExecutionService toolExecutionService;
+    private final ToolCatalog toolCatalog;
     private final WorkspaceService workspaceService;
     private final BotService botService;
     private final McpOrchestrationService mcpOrchestrationService;
@@ -58,6 +60,7 @@ public class BotWebhookService {
                              ReviewConfigProperties reviewConfig,
                              AgentSessionService agentSessionService,
                              ToolExecutionService toolExecutionService,
+                             ToolCatalog toolCatalog,
                              WorkspaceService workspaceService,
                               BotService botService,
                               McpOrchestrationService mcpOrchestrationService,
@@ -70,6 +73,7 @@ public class BotWebhookService {
         this.reviewConfig = reviewConfig;
         this.agentSessionService = agentSessionService;
         this.toolExecutionService = toolExecutionService;
+        this.toolCatalog = toolCatalog;
         this.workspaceService = workspaceService;
         this.botService = botService;
         this.mcpOrchestrationService = mcpOrchestrationService;
@@ -385,7 +389,7 @@ public class BotWebhookService {
                 bot.getMcpConfiguration(),
                 mcpToolCatalog);
         return new IssueImplementationService(context, promptService, agentConfig,
-                agentSessionService, toolExecutionService, workspaceService);
+                agentSessionService, toolExecutionService, toolCatalog, workspaceService);
     }
 
     private WriterAgentService createWriterAgentService(Bot bot) {
@@ -398,7 +402,7 @@ public class BotWebhookService {
             throw new IllegalStateException("Bot must have a system prompt assigned");
         }
         return new WriterAgentService(repoClient, aiClient, promptService, agentConfig,
-                agentSessionService, toolExecutionService, workspaceService,
+                agentSessionService, toolExecutionService, toolCatalog, workspaceService,
                 bot.getSystemPrompt().getWriterAgentSystemPrompt(), bot.getUsername(),
                 mcpOrchestrationService, bot.getMcpConfiguration(), mcpToolCatalog);
     }

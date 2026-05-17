@@ -1,9 +1,9 @@
 package org.remus.giteabot.agent.tools;
 
 /**
- * Classification of a tool the AI agent can invoke. The router uses the kind to
- * decide which underlying executor to call and which tools should be advertised
- * for which agent role.
+ * Classification of a tool the AI agent can invoke. The canonical lookup is
+ * {@link ToolCatalog#kindOf(String)} — code should not duplicate this taxonomy
+ * by maintaining its own constant lists or {@code is*Tool} checks.
  */
 public enum ToolKind {
 
@@ -28,7 +28,7 @@ public enum ToolKind {
     VALIDATION,
 
     /**
-     * A tool exposed by an MCP server.
+     * A tool exposed by an MCP server (name prefix {@code mcp:}). Silent.
      */
     MCP,
 
@@ -43,4 +43,3 @@ public enum ToolKind {
      */
     UNKNOWN
 }
-

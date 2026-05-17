@@ -8,12 +8,11 @@ import org.remus.giteabot.agent.loop.StepDecision;
 import org.remus.giteabot.agent.loop.ToolingMode;
 import org.remus.giteabot.agent.model.ImplementationPlan;
 import org.remus.giteabot.agent.session.AgentSessionService;
-import org.remus.giteabot.agent.shared.AgentNativeTools;
 import org.remus.giteabot.agent.shared.BranchSwitcher;
 import org.remus.giteabot.agent.shared.McpTools;
 import org.remus.giteabot.agent.tools.AgentToolRouter;
 import org.remus.giteabot.agent.tools.ToolCallContext;
-import org.remus.giteabot.agent.validation.ToolExecutionService;
+import org.remus.giteabot.agent.tools.ToolCatalog;
 import org.remus.giteabot.agent.validation.ToolResult;
 import org.remus.giteabot.agent.validation.WorkspaceService;
 import org.remus.giteabot.ai.ChatTurn;
@@ -70,7 +69,7 @@ public final class CodingAgentStrategy implements AgentStrategy {
     private final AgentSessionService sessionService;
     private final BranchSwitcher branchSwitcher;
     private final AgentToolRouter toolRouter;
-    private final ToolExecutionService toolExecutionService;
+    private final ToolCatalog catalog;
     private final WorkspaceService workspaceService;
     private final AgentConfigProperties agentConfig;
     private final McpOrchestrationService mcpOrchestrationService;
@@ -83,7 +82,6 @@ public final class CodingAgentStrategy implements AgentStrategy {
     private int fileRequestRounds = 0;
     private int toolRounds = 0;
     private int attempt = 1;
-    private ImplementationPlan lastSuccessfulPlan;
 
     /** Functional hook so the strategy stays decoupled from the surrounding service's helpers. */
     @FunctionalInterface
@@ -100,7 +98,7 @@ public final class CodingAgentStrategy implements AgentStrategy {
                                AgentSessionService sessionService,
                                BranchSwitcher branchSwitcher,
                                AgentToolRouter toolRouter,
-                               ToolExecutionService toolExecutionService,
+                               ToolCatalog catalog,
                                WorkspaceService workspaceService,
                                AgentConfigProperties agentConfig,
                                McpOrchestrationService mcpOrchestrationService,
@@ -113,7 +111,7 @@ public final class CodingAgentStrategy implements AgentStrategy {
         this.sessionService = sessionService;
         this.branchSwitcher = branchSwitcher;
         this.toolRouter = toolRouter;
-        this.toolExecutionService = toolExecutionService;
+        this.catalog = catalog;
         this.workspaceService = workspaceService;
         this.agentConfig = agentConfig;
         this.mcpOrchestrationService = mcpOrchestrationService;
@@ -146,7 +144,7 @@ public final class CodingAgentStrategy implements AgentStrategy {
      *  calling API. */
     @Override
     public List<ToolDescriptor> toolDescriptors() {
-        return AgentNativeTools.codingTools(mcpToolCatalog);
+        return catalog.nativeDescriptors(ToolCatalog.Role.CODING, mcpToolCatalog);
     }
 
     /**
@@ -213,7 +211,7 @@ public final class CodingAgentStrategy implements AgentStrategy {
         // 4) Surface non-silent results as issue comments (mirror legacy behaviour).
         for (int i = 0; i < remaining.size(); i++) {
             ImplementationPlan.ToolRequest req = remaining.get(i);
-            if (!toolExecutionService.isSilentTool(req.getTool()) && !isMcpTool(req.getTool())) {
+            if (!catalog.isSilent(req.getTool()) && !isMcpTool(req.getTool())) {
                 notificationService.postToolResultComment(ctx.owner(), ctx.repo(), ctx.issueNumber(),
                         req, rawResults.get(i));
             }
@@ -254,7 +252,6 @@ public final class CodingAgentStrategy implements AgentStrategy {
                         .toolRequests(remaining)
                         .build();
                 sessionService.recordPlan(ctx.session(), plan.getSummary(), turn.assistantText());
-                lastSuccessfulPlan = plan;
                 return new StepDecision.Finish(LoopOutcome.success(ctx.baseBranch(), plan));
             }
             log.info("Native tool round produced no Git-detectable workspace changes; continuing");
@@ -287,7 +284,7 @@ public final class CodingAgentStrategy implements AgentStrategy {
                 } else {
                     // 2) Typed schema (write-file/patch-file/mkdir/delete-file/cat/branch-switcher):
                     //    flatten the known property order into positional args. We honour the
-                    //    schema ordering documented in AgentNativeTools so the existing executors
+                    //    schema ordering documented in ToolCatalog so the existing executors
                     //    keep working unchanged.
                     addIfPresent(root, "path", args);
                     addIfPresent(root, "branch", args);
@@ -301,7 +298,7 @@ public final class CodingAgentStrategy implements AgentStrategy {
                     //    recognise or a schema we haven't updated. Fall through to a JSON
                     //    blob so the call still carries data and surface a warning so the
                     //    schema drift gets noticed.
-                    if (args.isEmpty() && root.size() > 0) {
+                    if (args.isEmpty() && !root.isEmpty()) {
                         log.warn("Tool '{}' called with unrecognised arg fields {} — "
                                 + "passing raw JSON. Update CodingAgentStrategy.toRequest if this tool "
                                 + "is supposed to be supported natively.",
@@ -319,9 +316,7 @@ public final class CodingAgentStrategy implements AgentStrategy {
     }
 
     private static List<String> fieldNames(JsonNode root) {
-        List<String> names = new ArrayList<>();
-        root.propertyNames().forEach(names::add);
-        return names;
+        return new ArrayList<>(root.propertyNames());
     }
 
     private static void addIfPresent(JsonNode root, String field, List<String> out) {
@@ -337,8 +332,8 @@ public final class CodingAgentStrategy implements AgentStrategy {
 
     /** Decide whether a tool request mutates the workspace or validates. */
     private boolean isMutationOrValidation(ImplementationPlan.ToolRequest req) {
-        return toolExecutionService.isFileTool(req.getTool())
-                || toolExecutionService.isValidationTool(req.getTool());
+        return catalog.isFile(req.getTool())
+                || catalog.isValidation(req.getTool());
     }
 
     /** Execute {@code requests} and turn the results into
@@ -429,7 +424,7 @@ public final class CodingAgentStrategy implements AgentStrategy {
         // 5) Surface non-silent tool results as comments.
         for (int i = 0; i < requests.size(); i++) {
             ImplementationPlan.ToolRequest req = requests.get(i);
-            if (!toolExecutionService.isSilentTool(req.getTool()) && !isMcpTool(req.getTool())) {
+            if (!catalog.isSilent(req.getTool()) && !isMcpTool(req.getTool())) {
                 notificationService.postToolResultComment(ctx.owner(), ctx.repo(), ctx.issueNumber(),
                         req, results.get(i));
             }
@@ -469,7 +464,6 @@ public final class CodingAgentStrategy implements AgentStrategy {
                                          List<ImplementationPlan.ToolRequest> requests,
                                          List<ToolResult> results) {
         if (workspaceService.hasUncommittedChanges(ctx.workspaceDir())) {
-            lastSuccessfulPlan = plan;
             return new StepDecision.Finish(LoopOutcome.success(ctx.baseBranch(), plan));
         }
         log.info("Tool execution produced no Git-detectable workspace changes; asking AI to correct");
@@ -496,20 +490,20 @@ public final class CodingAgentStrategy implements AgentStrategy {
     }
 
     private boolean hasValidationTools(List<ImplementationPlan.ToolRequest> requests) {
-        return requests.stream().anyMatch(r -> toolExecutionService.isValidationTool(r.getTool()));
+        return requests.stream().anyMatch(r -> catalog.isValidation(r.getTool()));
     }
 
     private boolean allValidationToolsPassed(List<ImplementationPlan.ToolRequest> requests,
                                              List<ToolResult> results) {
         return IntStream.range(0, requests.size())
-                .filter(i -> toolExecutionService.isValidationTool(requests.get(i).getTool()))
+                .filter(i -> catalog.isValidation(requests.get(i).getTool()))
                 .allMatch(i -> results.get(i).success());
     }
 
     private boolean hasNonValidationToolFailures(List<ImplementationPlan.ToolRequest> requests,
                                                  List<ToolResult> results) {
         return IntStream.range(0, requests.size())
-                .filter(i -> !toolExecutionService.isValidationTool(requests.get(i).getTool()))
+                .filter(i -> !catalog.isValidation(requests.get(i).getTool()))
                 .anyMatch(i -> !results.get(i).success());
     }
 
@@ -533,7 +527,7 @@ public final class CodingAgentStrategy implements AgentStrategy {
     private boolean hasOnlyMcpNonValidationFailures(List<ImplementationPlan.ToolRequest> requests,
                                                     List<ToolResult> results) {
         return IntStream.range(0, requests.size())
-                .filter(i -> !toolExecutionService.isValidationTool(requests.get(i).getTool()))
+                .filter(i -> !catalog.isValidation(requests.get(i).getTool()))
                 .filter(i -> !results.get(i).success())
                 .allMatch(i -> isMcpTool(requests.get(i).getTool()));
     }

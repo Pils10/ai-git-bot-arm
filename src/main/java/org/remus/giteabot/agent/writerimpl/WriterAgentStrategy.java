@@ -9,11 +9,11 @@ import org.remus.giteabot.agent.loop.ToolingMode;
 import org.remus.giteabot.agent.model.ImplementationPlan;
 import org.remus.giteabot.agent.session.AgentSession;
 import org.remus.giteabot.agent.session.AgentSessionService;
-import org.remus.giteabot.agent.shared.AgentNativeTools;
 import org.remus.giteabot.agent.shared.BranchSwitcher;
 import org.remus.giteabot.agent.shared.McpTools;
 import org.remus.giteabot.agent.tools.AgentToolRouter;
 import org.remus.giteabot.agent.tools.ToolCallContext;
+import org.remus.giteabot.agent.tools.ToolCatalog;
 import org.remus.giteabot.agent.validation.ToolResult;
 import org.remus.giteabot.ai.ChatTurn;
 import org.remus.giteabot.ai.ToolCall;
@@ -57,6 +57,7 @@ public final class WriterAgentStrategy implements AgentStrategy {
     private final BranchSwitcher branchSwitcher;
     private final AgentToolRouter toolRouter;
     private final McpToolCatalog mcpToolCatalog;
+    private final ToolCatalog catalog;
     private final int maxToolRounds;
 
     public WriterAgentStrategy(String systemPrompt,
@@ -67,6 +68,7 @@ public final class WriterAgentStrategy implements AgentStrategy {
                                BranchSwitcher branchSwitcher,
                                AgentToolRouter toolRouter,
                                McpToolCatalog mcpToolCatalog,
+                               ToolCatalog catalog,
                                int maxToolRounds) {
         this.systemPrompt = systemPrompt;
         this.promptBuilder = promptBuilder;
@@ -76,6 +78,7 @@ public final class WriterAgentStrategy implements AgentStrategy {
         this.branchSwitcher = branchSwitcher;
         this.toolRouter = toolRouter;
         this.mcpToolCatalog = mcpToolCatalog;
+        this.catalog = catalog;
         this.maxToolRounds = maxToolRounds;
     }
 
@@ -89,9 +92,10 @@ public final class WriterAgentStrategy implements AgentStrategy {
                                RepositoryApiClient repositoryClient,
                                BranchSwitcher branchSwitcher,
                                AgentToolRouter toolRouter,
+                               ToolCatalog catalog,
                                int maxToolRounds) {
         this(systemPrompt, promptBuilder, responseParser, sessionService, repositoryClient,
-                branchSwitcher, toolRouter, McpToolCatalog.empty(), maxToolRounds);
+                branchSwitcher, toolRouter, McpToolCatalog.empty(), catalog, maxToolRounds);
     }
 
     @Override
@@ -110,7 +114,7 @@ public final class WriterAgentStrategy implements AgentStrategy {
 
     @Override
     public List<ToolDescriptor> toolDescriptors() {
-        return AgentNativeTools.writerTools(mcpToolCatalog);
+        return catalog.nativeDescriptors(ToolCatalog.Role.WRITER, mcpToolCatalog);
     }
 
     /**
@@ -185,7 +189,7 @@ public final class WriterAgentStrategy implements AgentStrategy {
                     // Safety net: model used a tool/property we don't recognise. Fall
                     // through to a JSON blob so the call still carries data and surface
                     // a warning so the schema drift gets noticed.
-                    if (args.isEmpty() && root.size() > 0) {
+                    if (args.isEmpty() && !root.isEmpty()) {
                         log.warn("Writer tool '{}' called with unrecognised arg fields {} — "
                                 + "passing raw JSON. Update WriterAgentStrategy.toRequest if this tool "
                                 + "is supposed to be supported natively.",
@@ -203,9 +207,7 @@ public final class WriterAgentStrategy implements AgentStrategy {
     }
 
     private static List<String> fieldNames(JsonNode root) {
-        List<String> names = new ArrayList<>();
-        root.propertyNames().forEach(names::add);
-        return names;
+        return new ArrayList<>(root.propertyNames());
     }
 
     private static void addIfPresent(JsonNode root, String field, List<String> out) {

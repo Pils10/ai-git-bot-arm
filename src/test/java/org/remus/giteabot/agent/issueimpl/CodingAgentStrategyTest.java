@@ -12,7 +12,7 @@ import org.remus.giteabot.agent.session.AgentSessionService;
 import org.remus.giteabot.agent.shared.BranchSwitcher;
 import org.remus.giteabot.agent.tools.AgentToolRouter;
 import org.remus.giteabot.agent.tools.ToolCallContext;
-import org.remus.giteabot.agent.validation.ToolExecutionService;
+import org.remus.giteabot.agent.tools.ToolCatalog;
 import org.remus.giteabot.agent.validation.ToolResult;
 import org.remus.giteabot.agent.validation.WorkspaceService;
 import org.remus.giteabot.config.AgentConfigProperties;
@@ -21,11 +21,9 @@ import org.remus.giteabot.repository.RepositoryApiClient;
 
 import java.nio.file.Path;
 import java.util.List;
-import java.util.Objects;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
@@ -47,13 +45,13 @@ class CodingAgentStrategyTest {
 
     @Mock private RepositoryApiClient repositoryClient;
     @Mock private AgentSessionService sessionService;
-    @Mock private ToolExecutionService toolExecutionService;
     @Mock private WorkspaceService workspaceService;
     @Mock private IssueNotificationService notificationService;
     @Mock private BranchSwitcher branchSwitcher;
     @Mock private AgentToolRouter toolRouter;
 
     private AgentConfigProperties agentConfig;
+    private ToolCatalog toolCatalog;
     private AgentRunContext ctx;
     private AgentPromptBuilder promptBuilder;
     private AiResponseParser responseParser;
@@ -64,20 +62,17 @@ class CodingAgentStrategyTest {
         agentConfig.getValidation().setEnabled(true);
         agentConfig.getBudget().setMaxValidationRetries(3);
         agentConfig.getValidation().setMaxToolExecutions(10);
+        // Real catalog: "mvn" is validation (config default), "write-file" is FILE, etc.
+        toolCatalog = new ToolCatalog(agentConfig);
         promptBuilder = new AgentPromptBuilder();
         responseParser = new AiResponseParser();
         AgentSession session = new AgentSession("o", "r", 1L, "t");
         ctx = new AgentRunContext(session, "o", "r", 1L, Path.of("/tmp/ws"), "main");
-
-        // Tool classification: "mvn" is a validation tool, others are not.
-        lenient().when(toolExecutionService.isValidationTool(anyString()))
-                .thenAnswer(inv -> Objects.equals("mvn", inv.getArgument(0)));
-        lenient().when(toolExecutionService.isSilentTool(anyString())).thenReturn(true);
     }
 
     private CodingAgentStrategy newStrategy() {
         return new CodingAgentStrategy("sys", promptBuilder, responseParser, notificationService,
-                sessionService, branchSwitcher, toolRouter, toolExecutionService,
+                sessionService, branchSwitcher, toolRouter, toolCatalog,
                 workspaceService, agentConfig, null, McpToolCatalog.empty(),
                 (owner, repo, branch, files, tools, ws) -> "fetched-context");
     }
@@ -123,7 +118,7 @@ class CodingAgentStrategyTest {
         lenient().when(orchestration.isMcpTool(any(), eq("write-file"))).thenReturn(false);
         CodingAgentStrategy strategy = new CodingAgentStrategy("sys", promptBuilder, responseParser,
                 notificationService, sessionService, branchSwitcher, toolRouter,
-                toolExecutionService, workspaceService, agentConfig, orchestration, catalog,
+                toolCatalog, workspaceService, agentConfig, orchestration, catalog,
                 (a, b, c, d, e, f) -> "ctx");
 
         String response = """

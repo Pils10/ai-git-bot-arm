@@ -64,17 +64,18 @@ class BotWebhookServiceTest {
 
     @BeforeEach
     void setUp() {
+        // Real catalog – classification taxonomy is no longer mocked through TES.
+        org.remus.giteabot.agent.tools.ToolCatalog toolCatalog =
+                new org.remus.giteabot.agent.tools.ToolCatalog(new AgentConfigProperties());
         botWebhookService = new BotWebhookService(aiClientFactory, giteaClientFactory,
                 promptService, sessionService, agentConfig, new ReviewConfigProperties(),
-                agentSessionService, toolExecutionService, workspaceService, botService,
+                agentSessionService, toolExecutionService, toolCatalog, workspaceService, botService,
                 mcpOrchestrationService, mcpToolSelectionService);
         lenient().when(mcpOrchestrationService.discoverTools(any())).thenReturn(McpToolCatalog.empty());
         lenient().when(mcpToolSelectionService.filterCatalogForPrompt(any(), any()))
                 .thenAnswer(invocation -> invocation.getArgument(1));
         // Step 7.2 — provide a real BudgetConfig so production code that reads
         // agentConfig.getBudget().getMaxTokensPerCall() does not NPE on the mock.
-        // Match the existing per-test getMaxTokens()=4096 stubs so the chat()
-        // argument matchers (eq(4096)) keep working.
         AgentConfigProperties.BudgetConfig budget = new AgentConfigProperties.BudgetConfig();
         budget.setMaxTokensPerCall(4096);
         lenient().when(agentConfig.getBudget()).thenReturn(budget);
@@ -375,7 +376,6 @@ class BotWebhookServiceTest {
                         """);
         when(toolExecutionService.executeContextTool(workspace, "branch-switcher", java.util.List.of("develop")))
                 .thenReturn(new ToolResult(true, 0, "Switched workspace branch to: develop", ""));
-        when(toolExecutionService.isContextTool("cat")).thenReturn(true);
         when(toolExecutionService.executeContextTool(workspace, "cat", java.util.List.of("README.md")))
                 .thenReturn(new ToolResult(true, 0, "README contents", ""));
         when(repositoryApiClient.createIssue(eq("Test"), eq("my-repo"), eq("AI Created Issue: Vague issue"), any()))
@@ -528,7 +528,6 @@ class BotWebhookServiceTest {
         when(aiClient.chat(any(), any(), startsWith("Writer prompt"), any(), eq(4096)))
                 .thenReturn(contextRequest, contextRequest, contextRequest,
                         contextRequest, contextRequest, contextRequest);
-        when(toolExecutionService.isContextTool("cat")).thenReturn(true);
         when(toolExecutionService.executeContextTool(workspace, "cat", java.util.List.of("README.md")))
                 .thenReturn(new ToolResult(true, 0, "README contents", ""));
 
@@ -568,7 +567,6 @@ class BotWebhookServiceTest {
         when(agentSessionService.toAiMessages(session)).thenReturn(java.util.List.of());
         when(aiClient.chat(any(), any(), startsWith("Writer prompt"), any(), eq(4096)))
                 .thenReturn(contextRequest, contextRequest, contextRequest, contextRequest, finalResponse);
-        when(toolExecutionService.isContextTool("cat")).thenReturn(true);
         when(toolExecutionService.executeContextTool(workspace, "cat", java.util.List.of("README.md")))
                 .thenReturn(new ToolResult(true, 0, "README contents", ""));
         when(repositoryApiClient.createIssue(eq("Test"), eq("my-repo"), eq("AI Created Issue: Vague issue"), any()))

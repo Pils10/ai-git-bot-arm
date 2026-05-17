@@ -2,12 +2,13 @@ package org.remus.giteabot.agent.issueimpl;
 
 import lombok.extern.slf4j.Slf4j;
 import org.remus.giteabot.agent.model.ImplementationPlan;
-import org.remus.giteabot.agent.shared.McpTools;
-import org.remus.giteabot.agent.validation.ToolExecutionService;
+import org.remus.giteabot.agent.tools.ToolCatalog;
 import org.remus.giteabot.agent.validation.ToolResult;
 import org.remus.giteabot.repository.RepositoryApiClient;
 
+import java.util.EnumMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Posts progress, thinking, and tool-result comments on issues
@@ -21,14 +22,14 @@ public class IssueNotificationService {
 
     private final RepositoryApiClient repositoryClient;
     private final AiResponseParser responseParser;
-    private final ToolExecutionService toolExecutionService;
+    private final ToolCatalog catalog;
 
     public IssueNotificationService(RepositoryApiClient repositoryClient,
                                      AiResponseParser responseParser,
-                                     ToolExecutionService toolExecutionService) {
+                                     ToolCatalog catalog) {
         this.repositoryClient = repositoryClient;
         this.responseParser = responseParser;
-        this.toolExecutionService = toolExecutionService;
+        this.catalog = catalog;
     }
 
     /**
@@ -85,7 +86,7 @@ public class IssueNotificationService {
         if (plan != null && plan.hasToolRequest()) {
             List<ImplementationPlan.ToolRequest> validationTools = plan.getEffectiveToolRequests()
                     .stream()
-                    .filter(r -> !toolExecutionService.isSilentTool(r.getTool()))
+                    .filter(r -> !catalog.isSilent(r.getTool()))
                     .toList();
             if (!validationTools.isEmpty()) {
                 comment.append("🔧 **Will run** (").append(validationTools.size()).append("):\n");
@@ -138,45 +139,22 @@ public class IssueNotificationService {
         }
 
         if (hasRequests) {
-            // Split into context (silent read-only) and validation/mutation tools so the
-            // user can quickly see what's about to touch the workspace. MCP tools
-            // (mcp:<server>:<tool>) are read-only lookups and belong in the context
-            // bucket, not in "Will run" alongside mvn/gradle/npm.
-            List<ImplementationPlan.ToolRequest> contextTools = requests.stream()
-                    .filter(r -> (toolExecutionService.isSilentTool(r.getTool())
-                            && !toolExecutionService.isFileTool(r.getTool()))
-                            || McpTools.looksLikeMcpTool(r.getTool()))
-                    .toList();
-            List<ImplementationPlan.ToolRequest> mutationTools = requests.stream()
-                    .filter(r -> toolExecutionService.isFileTool(r.getTool()))
-                    .toList();
-            List<ImplementationPlan.ToolRequest> validationTools = requests.stream()
-                    .filter(r -> !toolExecutionService.isSilentTool(r.getTool())
-                            && !toolExecutionService.isFileTool(r.getTool())
-                            && !McpTools.looksLikeMcpTool(r.getTool()))
-                    .toList();
+            // Group tools into visual buckets via ToolCatalog instead of stacking
+            // isFile/isSilent/looksLikeMcp boolean checks. MCP and read-only tools
+            // belong in "Context lookups", file tools in "File changes", everything
+            // else (validation tools + unknown names) in "Will run".
+            Map<ToolCatalog.DisplayBucket, List<ImplementationPlan.ToolRequest>> bucketed =
+                    new EnumMap<>(ToolCatalog.DisplayBucket.class);
+            for (ToolCatalog.DisplayBucket bucket : ToolCatalog.DisplayBucket.values()) {
+                bucketed.put(bucket, new java.util.ArrayList<>());
+            }
+            for (ImplementationPlan.ToolRequest req : requests) {
+                bucketed.get(catalog.bucketOf(req.getTool())).add(req);
+            }
 
-            if (!contextTools.isEmpty()) {
-                comment.append("🔎 **Context lookups** (").append(contextTools.size()).append("):\n");
-                for (ImplementationPlan.ToolRequest req : contextTools) {
-                    appendToolRequestLine(comment, req);
-                }
-                comment.append("\n");
-            }
-            if (!mutationTools.isEmpty()) {
-                comment.append("✏️ **File changes** (").append(mutationTools.size()).append("):\n");
-                for (ImplementationPlan.ToolRequest req : mutationTools) {
-                    appendToolRequestLine(comment, req);
-                }
-                comment.append("\n");
-            }
-            if (!validationTools.isEmpty()) {
-                comment.append("🔧 **Will run** (").append(validationTools.size()).append("):\n");
-                for (ImplementationPlan.ToolRequest req : validationTools) {
-                    appendToolRequestLine(comment, req);
-                }
-                comment.append("\n");
-            }
+            appendBucket(comment, "🔎 **Context lookups**", bucketed.get(ToolCatalog.DisplayBucket.CONTEXT));
+            appendBucket(comment, "✏️ **File changes**", bucketed.get(ToolCatalog.DisplayBucket.MUTATION));
+            appendBucket(comment, "🔧 **Will run**", bucketed.get(ToolCatalog.DisplayBucket.VALIDATION));
         }
 
         try {
@@ -260,6 +238,18 @@ public class IssueNotificationService {
     }
 
     // ---- Helpers ----
+
+    private void appendBucket(StringBuilder comment, String header,
+                              List<ImplementationPlan.ToolRequest> requests) {
+        if (requests == null || requests.isEmpty()) {
+            return;
+        }
+        comment.append(header).append(" (").append(requests.size()).append("):\n");
+        for (ImplementationPlan.ToolRequest req : requests) {
+            appendToolRequestLine(comment, req);
+        }
+        comment.append("\n");
+    }
 
     private void appendToolRequestLine(StringBuilder comment, ImplementationPlan.ToolRequest toolReq) {
         String id = (toolReq.getId() != null && !toolReq.getId().isBlank())

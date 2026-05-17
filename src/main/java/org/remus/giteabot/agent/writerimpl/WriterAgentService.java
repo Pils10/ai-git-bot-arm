@@ -12,6 +12,7 @@ import org.remus.giteabot.agent.shared.BranchSwitcher;
 import org.remus.giteabot.agent.shared.SystemPromptAssembler;
 import org.remus.giteabot.agent.loop.ToolingMode;
 import org.remus.giteabot.agent.tools.AgentToolRouter;
+import org.remus.giteabot.agent.tools.ToolCatalog;
 import org.remus.giteabot.agent.validation.ToolExecutionService;
 import org.remus.giteabot.agent.validation.WorkspaceResult;
 import org.remus.giteabot.agent.validation.WorkspaceService;
@@ -55,6 +56,7 @@ public class WriterAgentService {
     private final AgentErrorNotificationService errorNotificationService;
     private final BranchSwitcher branchSwitcher;
     private final AgentToolRouter toolRouter;
+    private final ToolCatalog toolCatalog;
     private final WriterPromptBuilder promptBuilder = new WriterPromptBuilder();
     private final WriterResponseParser responseParser = new WriterResponseParser();
     private final McpToolPromptRenderer mcpToolPromptRenderer = new McpToolPromptRenderer();
@@ -66,11 +68,12 @@ public class WriterAgentService {
                               AgentConfigProperties agentConfig,
                               AgentSessionService sessionService,
                               ToolExecutionService toolExecutionService,
+                              ToolCatalog toolCatalog,
                               WorkspaceService workspaceService,
                               String writerAgentSystemPrompt,
                               String botUsername) {
         this(repositoryClient, aiClient, promptService, agentConfig, sessionService,
-                toolExecutionService, workspaceService, writerAgentSystemPrompt, botUsername,
+                toolExecutionService, toolCatalog, workspaceService, writerAgentSystemPrompt, botUsername,
                 null, null, McpToolCatalog.empty());
     }
 
@@ -80,6 +83,7 @@ public class WriterAgentService {
                               AgentConfigProperties agentConfig,
                               AgentSessionService sessionService,
                               ToolExecutionService toolExecutionService,
+                              ToolCatalog toolCatalog,
                               WorkspaceService workspaceService,
                               String writerAgentSystemPrompt,
                               String botUsername,
@@ -95,9 +99,10 @@ public class WriterAgentService {
         this.writerAgentSystemPrompt = writerAgentSystemPrompt;
         this.botUsername = botUsername;
         this.mcpToolCatalog = mcpToolCatalog != null ? mcpToolCatalog : McpToolCatalog.empty();
+        this.toolCatalog = toolCatalog;
         this.errorNotificationService = new AgentErrorNotificationService(repositoryClient);
         this.branchSwitcher = new BranchSwitcher(toolExecutionService);
-        this.toolRouter = new AgentToolRouter(toolExecutionService, mcpOrchestrationService,
+        this.toolRouter = new AgentToolRouter(toolExecutionService, toolCatalog, mcpOrchestrationService,
                 mcpConfiguration, this.mcpToolCatalog, repositoryClient);
     }
 
@@ -245,6 +250,7 @@ public class WriterAgentService {
                 branchSwitcher,
                 toolRouter,
                 mcpToolCatalog,
+                toolCatalog,
                 maxToolRounds());
         // The historic loop ran for-each `round in 0..maxToolRounds` (inclusive), i.e. one extra
         // iteration beyond the context-round limit so the AI gets a chance to produce a
