@@ -27,9 +27,11 @@ import java.util.List;
  * validation, writer-repository).
  *
  * <p>Exactly one configuration is flagged as the {@link #isDefaultEntry()
- * default entry}. The default configuration is created automatically at
- * startup, contains every currently known built-in tool, and is protected
- * against deletion/renaming.</p>
+ * default entry}. The default configuration is created by Flyway migration
+ * V12 with the initial set of built-in tool selections; it is protected
+ * against deletion/renaming. Tools added in later releases must be enabled
+ * manually by an admin — the application never extends the default
+ * configuration at runtime.</p>
  */
 @Data
 @NoArgsConstructor

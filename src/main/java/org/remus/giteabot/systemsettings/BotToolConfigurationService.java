@@ -14,8 +14,9 @@ import java.util.Optional;
  * {@link McpConfigurationService}.
  *
  * <p>The default configuration is protected: it cannot be renamed, cannot be
- * deleted, and cannot lose its default flag. Its tool selections are managed
- * by {@link DefaultBotToolConfigurationInitializer}.</p>
+ * deleted, and cannot lose its default flag. Its row and initial tool
+ * selections are created by Flyway migration V12; admins manage the
+ * selection from then on via the System settings UI.</p>
  */
 @Service
 @Transactional

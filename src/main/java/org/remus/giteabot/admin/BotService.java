@@ -50,9 +50,9 @@ public class BotService {
             // Defensive fallback: assign the auto-generated default tool
             // configuration so the mandatory FK is always satisfied. In
             // production this branch only fires for callers that bypass the
-            // BotController (integration tests, scripts). The default is
-            // bootstrapped by DefaultBotToolConfigurationInitializer on
-            // application startup.
+            // BotController (integration tests, scripts). The Default
+            // configuration and its initial built-in tool selections are
+            // created and seeded by Flyway migration V12.
             botToolConfigurationRepository.findByDefaultEntryTrue()
                     .ifPresent(bot::setToolConfiguration);
         }

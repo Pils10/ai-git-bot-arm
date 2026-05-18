@@ -65,15 +65,22 @@ erDiagram
 
 ## The Default configuration
 
-On every application start, `DefaultBotToolConfigurationInitializer` ensures a
-configuration named **Default** exists and is marked `defaultEntry = true`.
-The initializer also **adds** any built-in tool that is missing from the
-Default's selection (it never removes tools). This means:
+The Default configuration is **created by the Flyway migration V12** together
+with its full set of statically known built-in tool selections, so it exists
+and is usable the moment the application opens the database. There is no
+runtime bootstrap component: the application never auto-extends the Default
+configuration. This means:
 
-- New built-in tools shipped in a future release are automatically enabled in
-  Default, preserving backwards-compatible behavior.
-- Admin-curated removals from non-default configurations are stable across
-  upgrades.
+- Migration correctness is self-contained: V12 inserts the Default row,
+  seeds the built-in tool selections (file, context, repository) and then
+  attaches every existing bot to it before adding the `NOT NULL` /
+  foreign-key constraint.
+- New built-in tools shipped in a future release — and validation tools
+  added through `agent.validation.available-tools` — are **not** added to
+  Default automatically. An admin must opt in by editing the configuration
+  in **System settings → Tool configurations**.
+- Admin-curated selections in Default and in every other configuration are
+  stable across upgrades.
 
 The Default configuration is protected:
 
@@ -160,13 +167,22 @@ whitelist derived from their `BotToolConfiguration`.
 ## Migration from earlier versions
 
 Flyway migrations `V11__bot_tool_configurations.sql` and
-`V12__bot_tool_configuration_fk.sql` ship the schema and a two-step bootstrap:
+`V12__bot_tool_configuration_fk.sql` ship the schema and a fully
+self-contained, two-step bootstrap that does **not** depend on any
+application-level code:
 
 1. **V11** creates `bot_tool_configurations` + `bot_tool_selections` and adds
    a nullable `bots.bot_tool_configuration_id` column.
-2. **V12** backfills every existing bot to the Default configuration created
-   by `DefaultBotToolConfigurationInitializer`, then sets the column to
-   `NOT NULL`.
+2. **V12** inserts the Default configuration row, seeds it with every
+   statically known built-in tool (file, context, repository — and the silent
+   context aliases), backfills every existing bot to that Default
+   configuration, adds the foreign-key constraint and finally sets the column
+   to `NOT NULL`.
+
+After migration completes the application performs **no** further auto-seeding
+of tool configurations. Built-in or validation tools added in future releases
+must be enabled manually by an admin via **System settings → Tool
+configurations**.
 
 There is nothing for operators to do on upgrade — existing bots continue to
 expose all built-in tools (because they reference Default), and admins can

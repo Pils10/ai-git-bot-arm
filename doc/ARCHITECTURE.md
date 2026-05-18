@@ -537,10 +537,11 @@ bot via reusable `BotToolConfiguration` entries. Unlike MCP, this whitelist is
 - `BotToolSelectionService` persists per-configuration whitelist rows and
   resolves them into a `Set<String>` of allowed built-in tool names for the
   runtime.
-- `DefaultBotToolConfigurationInitializer` is an `ApplicationRunner` that
-  ensures a Default configuration exists on every startup and additively
-  enables any new built-in tool shipped by the catalog (it never removes
-  selections).
+- `DefaultBotToolConfigurationInitializer` has been retired. The Default
+  configuration row and its initial built-in tool selections are created
+  by Flyway migration V12. New built-in or validation tools shipped by
+  later releases are **not** auto-enabled — admins opt in via the System
+  settings UI.
 - `BotWebhookService` resolves the whitelist for the bot and threads it
   through `IssueImplementationContext` / `WriterAgentService` to both the
   prompt builders and `AgentToolRouter`.
