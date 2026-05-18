@@ -71,7 +71,7 @@ class BotWebhookServiceTest {
         org.remus.giteabot.agent.tools.ToolCatalog toolCatalog =
                 new org.remus.giteabot.agent.tools.ToolCatalog(new AgentConfigProperties());
         botWebhookService = new BotWebhookService(aiClientFactory, giteaClientFactory,
-                promptService, sessionService, agentConfig, new ReviewConfigProperties(),
+                promptService, agentConfig,
                 agentSessionService, toolExecutionService, toolCatalog, workspaceService, botService,
                 mcpOrchestrationService, mcpToolSelectionService, botToolSelectionService,
                 prWorkflowOrchestrator, codeReviewServiceFactory);

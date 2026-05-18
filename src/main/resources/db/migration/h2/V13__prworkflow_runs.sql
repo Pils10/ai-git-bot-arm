@@ -42,7 +42,7 @@ CREATE TABLE IF NOT EXISTS pr_workflow_steps (
     step_order INTEGER NOT NULL,
     name VARCHAR(255) NOT NULL,
     status VARCHAR(32) NOT NULL,
-    log_excerpt CLOB,
+    log_excerpt TEXT,
     created_at TIMESTAMP NOT NULL,
     CONSTRAINT fk_pr_workflow_step_run
         FOREIGN KEY (run_id) REFERENCES pr_workflow_runs(id)
