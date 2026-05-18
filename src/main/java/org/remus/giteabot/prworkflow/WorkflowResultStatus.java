@@ -4,8 +4,7 @@ package org.remus.giteabot.prworkflow;
  * Outcome of one {@link PrWorkflow#run(PrWorkflowContext)} invocation. Maps
  * directly onto the persisted {@link PrWorkflowRunStatus} but is intentionally
  * narrower so workflow implementations cannot produce intermediate or
- * orchestrator-only states (such as {@link PrWorkflowRunStatus#QUEUED} or
- * {@link PrWorkflowRunStatus#CANCELLED}).
+ * orchestrator-only states (such as {@link PrWorkflowRunStatus#CANCELLED}).
  */
 public enum WorkflowResultStatus {
     /** Workflow finished successfully. */

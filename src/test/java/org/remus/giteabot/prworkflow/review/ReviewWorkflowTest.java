@@ -83,7 +83,8 @@ class ReviewWorkflowTest {
     }
 
     private static PrWorkflowContext ctx(Bot bot, WebhookPayload payload) {
-        return new PrWorkflowContext(bot, payload, 1L, (name, log) -> { /* no-op */ });
+        return new PrWorkflowContext(bot, payload, 1L, (name, log) -> { /* no-op */ },
+                () -> false /* never cancelled */);
     }
 
     private static PrWorkflowContext cancelledCtx(Bot bot, WebhookPayload payload) {

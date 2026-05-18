@@ -7,8 +7,7 @@
 -- coupling to any particular workflow implementation.
 --
 -- Status taxonomy (kept as VARCHAR for forward compatibility):
---   QUEUED           -- created, not yet started
---   RUNNING          -- workflow.run() in progress
+--   RUNNING          -- workflow.run() in progress (start() inserts directly here)
 --   WAITING_DEPLOY   -- awaiting an external callback (introduced in M3)
 --   SUCCESS          -- workflow.run() completed with status SUCCESS
 --   FAILED           -- workflow.run() threw or returned FAILED

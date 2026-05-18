@@ -61,8 +61,7 @@ public class PrWorkflowRunService {
         List<PrWorkflowRun> active = runRepository
                 .findByBotIdAndRepoOwnerAndRepoNameAndPrNumberAndWorkflowKeyAndStatusIn(
                         botId, repoOwner, repoName, prNumber, workflowKey,
-                        List.of(PrWorkflowRunStatus.QUEUED,
-                                PrWorkflowRunStatus.RUNNING,
+                        List.of(PrWorkflowRunStatus.RUNNING,
                                 PrWorkflowRunStatus.WAITING_DEPLOY));
         if (active.isEmpty()) {
             return;
@@ -117,8 +116,8 @@ public class PrWorkflowRunService {
 
     /**
      * Returns {@code true} if the given run is still in an active state
-     * ({@link PrWorkflowRunStatus#QUEUED}, {@link PrWorkflowRunStatus#RUNNING}
-     * or {@link PrWorkflowRunStatus#WAITING_DEPLOY}). Used by
+     * ({@link PrWorkflowRunStatus#RUNNING} or
+     * {@link PrWorkflowRunStatus#WAITING_DEPLOY}). Used by
      * {@link PrWorkflowContext#isCancelled()} so workflows can cooperatively
      * abort before performing external side effects.
      *

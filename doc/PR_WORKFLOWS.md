@@ -47,15 +47,20 @@ flowchart LR
 
 ```mermaid
 stateDiagram-v2
-    [*] --> QUEUED: PrWorkflowRunService.start(...)
-    QUEUED --> RUNNING: orchestrator hands control to workflow
+    [*] --> RUNNING: PrWorkflowRunService.start(...)
     RUNNING --> SUCCESS: WorkflowResult.success / .skipped
     RUNNING --> FAILED: exception / WorkflowResult.failed
     RUNNING --> WAITING_DEPLOY: WorkflowResult.waitingDeploy (M3+)
-    QUEUED --> CANCELLED: superseded by newer run for same PR
     RUNNING --> CANCELLED: superseded by newer run for same PR
+    WAITING_DEPLOY --> RUNNING: deployment callback (M3+)
     WAITING_DEPLOY --> CANCELLED: superseded by newer run for same PR
 ```
+
+> There is intentionally **no** `QUEUED` intermediate state — the orchestrator
+> owns the transition from "webhook received" to "workflow executing" inside a
+> single synchronous call to `PrWorkflowRunService.start(...)`, which inserts
+> the row directly in `RUNNING`. No separate scheduler observes a
+> pre-execution row.
 
 **Cancel-on-resync.** When a PR receives a `synchronize` (push) event while a
 previous run for the same `(bot, repo, pr, workflow)` tuple is still active,

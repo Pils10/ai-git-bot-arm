@@ -348,13 +348,11 @@ public class BotWebhookService {
     }
 
     /**
-     * Creates a per-bot {@link CodeReviewService} using the bot's AI and Git integrations.
-     *
-     * @deprecated since M1: delegates to {@link CodeReviewServiceFactory}.
-     * Will be removed once all non-review handlers are migrated to dedicated
-     * workflows (planned for milestones M2+).
+     * Creates a per-bot {@link CodeReviewService} via the shared
+     * {@link CodeReviewServiceFactory}. Used by the non-review webhook
+     * handlers (bot commands, inline comments, review submissions, PR-closed)
+     * that have not yet been extracted into their own {@code PrWorkflow}.
      */
-    @Deprecated
     private CodeReviewService createCodeReviewService(Bot bot) {
         return codeReviewServiceFactory.create(bot);
     }

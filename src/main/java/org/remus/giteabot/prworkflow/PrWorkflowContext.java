@@ -32,8 +32,7 @@ import java.util.function.BooleanSupplier;
  * </ul>
  *
  * <p>In milestones M3+ this record gains accessors for the resolved
- * deployment target, per-workflow params and the callback secret. The
- * existing accessors stay backwards-compatible.</p>
+ * deployment target, per-workflow params and the callback secret.</p>
  */
 public record PrWorkflowContext(
         Bot bot,
@@ -50,16 +49,6 @@ public record PrWorkflowContext(
         Objects.requireNonNull(cancellationCheck, "cancellationCheck");
     }
 
-    /**
-     * Convenience constructor for tests that do not exercise cancellation
-     * semantics. Production code goes through {@link PrWorkflowOrchestrator},
-     * which always supplies a real cancellation probe backed by
-     * {@link PrWorkflowRunService}.
-     */
-    public PrWorkflowContext(Bot bot, WebhookPayload payload, Long runId,
-                             BiConsumer<String, String> stepAppender) {
-        this(bot, payload, runId, stepAppender, () -> false);
-    }
 
     /**
      * Records an informational step on the current {@link PrWorkflowRun}.

@@ -74,7 +74,7 @@ Extract the existing PR-review logic into a pluggable `PrWorkflow` interface and
 
 **Key Deliverables:**
 - `PrWorkflow` interface + `PrWorkflowRegistry` (Spring DI auto-collection)
-- `PrWorkflowOrchestrator` with lifecycle management (transition matrix: QUEUED → WAITING_DEPLOY → RUNNING → SUCCESS/FAILED)
+- `PrWorkflowOrchestrator` with lifecycle management (transition matrix: RUNNING → WAITING_DEPLOY → RUNNING → SUCCESS/FAILED, plus CANCELLED on supersession)
 - `ReviewWorkflow` extracted 1:1 from existing code
 - Flyway `V13__prworkflow_runs.sql` (tables: `pr_workflow_runs`, `pr_workflow_steps`)
 - Micrometer metrics: `prworkflow.run_total{workflow,status}` + `prworkflow.run_duration_seconds{workflow}`

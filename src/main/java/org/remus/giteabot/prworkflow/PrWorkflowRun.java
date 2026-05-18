@@ -61,7 +61,7 @@ public class PrWorkflowRun {
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 32)
-    private PrWorkflowRunStatus status = PrWorkflowRunStatus.QUEUED;
+    private PrWorkflowRunStatus status = PrWorkflowRunStatus.RUNNING;
 
     @Column(length = 2048)
     private String summary;
@@ -84,7 +84,7 @@ public class PrWorkflowRun {
             startedAt = Instant.now();
         }
         if (status == null) {
-            status = PrWorkflowRunStatus.QUEUED;
+            status = PrWorkflowRunStatus.RUNNING;
         }
     }
 }
