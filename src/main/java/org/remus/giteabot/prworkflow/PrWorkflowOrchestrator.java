@@ -35,13 +35,16 @@ public class PrWorkflowOrchestrator {
     private final PrWorkflowRegistry registry;
     private final PrWorkflowRunService runService;
     private final PrWorkflowMetrics metrics;
+    private final PrWorkflowRunLockManager lockManager;
 
     public PrWorkflowOrchestrator(PrWorkflowRegistry registry,
                                   PrWorkflowRunService runService,
-                                  PrWorkflowMetrics metrics) {
+                                  PrWorkflowMetrics metrics,
+                                  PrWorkflowRunLockManager lockManager) {
         this.registry = registry;
         this.runService = runService;
         this.metrics = metrics;
+        this.lockManager = lockManager;
     }
 
     /**
@@ -72,14 +75,16 @@ public class PrWorkflowOrchestrator {
                     "owner=" + owner + ", repo=" + repoName + ", pr=" + prNumber + ")");
         }
 
-        PrWorkflowRun run = runService.start(bot.getId(), owner, repoName, prNumber, workflow.key());
+        PrWorkflowRun run = lockManager.withLock(bot.getId(), owner, repoName, prNumber, workflow.key(),
+                () -> runService.start(bot.getId(), owner, repoName, prNumber, workflow.key()));
         log.debug("[Workflow '{}'] Started run id={} for bot={} repo={}/{} pr=#{}",
                 workflow.key(), run.getId(), bot.getName(), owner, repoName, prNumber);
         Instant startInstant = run.getStartedAt() == null ? Instant.now() : run.getStartedAt();
 
         PrWorkflowContext context = new PrWorkflowContext(
                 bot, payload, run.getId(),
-                (name, log) -> runService.appendStep(run.getId(), name, "INFO", log));
+                (name, log) -> runService.appendStep(run.getId(), name, "INFO", log),
+                () -> !runService.isActive(run.getId()));
 
         try {
             WorkflowResult result = workflow.run(context);
@@ -87,12 +92,30 @@ public class PrWorkflowOrchestrator {
                 throw new IllegalStateException("PrWorkflow '" + workflow.key()
                         + "' returned a null WorkflowResult");
             }
-            PrWorkflowRunStatus status = mapTerminalStatus(result.status());
-            PrWorkflowRun completed = runService.complete(run.getId(), status, result.summary());
-            metrics.recordRun(workflow.key(), status, Duration.between(startInstant, Instant.now()));
+            PrWorkflowRunStatus desired = mapTerminalStatus(result.status());
+            PrWorkflowRun completed = runService.complete(run.getId(), desired, result.summary());
+            // If a concurrent supersession marked the run CANCELLED while the workflow body
+            // was still executing, complete() is a no-op and `completed.getStatus()` reflects
+            // the persisted CANCELLED status — use that for metrics/logs, not the desired one.
+            PrWorkflowRunStatus effective = completed.getStatus() != null ? completed.getStatus() : desired;
+            metrics.recordRun(workflow.key(), effective, Duration.between(startInstant, Instant.now()));
             log.info("[Workflow '{}'] Finished run id={} status={} summary={}",
-                    workflow.key(), completed.getId(), completed.getStatus(), completed.getSummary());
+                    workflow.key(), completed.getId(), effective, completed.getSummary());
             return completed;
+        } catch (WorkflowCancelledException cancelled) {
+            // Cooperative cancellation — not a failure. The run row is already CANCELLED
+            // (set by the superseding start() call); complete() is a no-op for terminal rows.
+            try {
+                runService.appendStep(run.getId(), "cancelled", "INFO", cancelled.getMessage());
+            } catch (RuntimeException persistErr) {
+                log.warn("Failed to append cancellation step for run id={}: {}",
+                        run.getId(), persistErr.getMessage());
+            }
+            metrics.recordRun(workflow.key(), PrWorkflowRunStatus.CANCELLED,
+                    Duration.between(startInstant, Instant.now()));
+            log.info("[Workflow '{}'] Run id={} CANCELLED: {}",
+                    workflow.key(), run.getId(), cancelled.getMessage());
+            return runService.getById(run.getId());
         } catch (RuntimeException e) {
             String summary = "Workflow failed: " + truncateForSummary(e.getMessage());
             try {

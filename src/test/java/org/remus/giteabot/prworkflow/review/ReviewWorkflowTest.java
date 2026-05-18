@@ -10,6 +10,7 @@ import org.remus.giteabot.admin.GiteaClientFactory;
 import org.remus.giteabot.gitea.model.WebhookPayload;
 import org.remus.giteabot.prworkflow.PrWorkflowCategory;
 import org.remus.giteabot.prworkflow.PrWorkflowContext;
+import org.remus.giteabot.prworkflow.WorkflowCancelledException;
 import org.remus.giteabot.prworkflow.WorkflowResult;
 import org.remus.giteabot.prworkflow.WorkflowResultStatus;
 import org.remus.giteabot.repository.PostReviewAction;
@@ -17,6 +18,7 @@ import org.remus.giteabot.repository.RepositoryApiClient;
 import org.remus.giteabot.review.CodeReviewService;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
@@ -82,6 +84,24 @@ class ReviewWorkflowTest {
 
     private static PrWorkflowContext ctx(Bot bot, WebhookPayload payload) {
         return new PrWorkflowContext(bot, payload, 1L, (name, log) -> { /* no-op */ });
+    }
+
+    private static PrWorkflowContext cancelledCtx(Bot bot, WebhookPayload payload) {
+        return new PrWorkflowContext(bot, payload, 1L, (name, log) -> { /* no-op */ },
+                () -> true /* always cancelled */);
+    }
+
+    @Test
+    void abortsBeforeInvokingCodeReviewWhenRunSuperseded() {
+        Bot bot = botWith(PostReviewAction.APPROVE);
+        WebhookPayload payload = payloadFor("acme", "web", 9L);
+
+        assertThrows(WorkflowCancelledException.class,
+                () -> workflow.run(cancelledCtx(bot, payload)));
+
+        // CodeReviewService must not even be invoked when the run is already superseded.
+        verify(codeReviewService, never()).reviewPullRequest(any(), any());
+        verify(repoClient, never()).postReviewAction(any(), any(), anyLong(), any());
     }
 
     private static Bot botWith(PostReviewAction action) {

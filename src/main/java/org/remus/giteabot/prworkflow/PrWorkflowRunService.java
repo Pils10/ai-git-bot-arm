@@ -115,6 +115,26 @@ public class PrWorkflowRunService {
                 () -> new IllegalArgumentException("Unknown PrWorkflowRun id=" + runId));
     }
 
+    /**
+     * Returns {@code true} if the given run is still in an active state
+     * ({@link PrWorkflowRunStatus#QUEUED}, {@link PrWorkflowRunStatus#RUNNING}
+     * or {@link PrWorkflowRunStatus#WAITING_DEPLOY}). Used by
+     * {@link PrWorkflowContext#isCancelled()} so workflows can cooperatively
+     * abort before performing external side effects.
+     *
+     * <p>A missing run id is treated as cancelled (defensive).</p>
+     */
+    @Transactional(readOnly = true)
+    public boolean isActive(Long runId) {
+        if (runId == null) {
+            return false;
+        }
+        return runRepository.findById(runId)
+                .map(PrWorkflowRun::getStatus)
+                .map(PrWorkflowRunStatus::isActive)
+                .orElse(false);
+    }
+
     static String truncate(String value, int max) {
         if (value == null) {
             return null;

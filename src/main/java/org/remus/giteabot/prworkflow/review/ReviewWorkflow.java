@@ -68,6 +68,11 @@ public class ReviewWorkflow implements PrWorkflow {
         WebhookPayload payload = context.payload();
 
         RepositoryApiClient repositoryClient = giteaClientFactory.getApiClient(bot.getGitIntegration());
+
+        // Before invoking the (potentially expensive) LLM review, make sure this run
+        // has not already been superseded by a newer PR-synchronize event.
+        context.requireActive("before invoking CodeReviewService.reviewPullRequest");
+
         boolean reviewed = codeReviewServiceFactory.create(bot, repositoryClient)
                 .reviewPullRequest(payload, null);
 
@@ -75,6 +80,11 @@ public class ReviewWorkflow implements PrWorkflow {
                 reviewed ? "Posted review comment for PR" : "Skipped — no diff or no eligible content");
 
         if (reviewed && bot.getGitIntegration() != null) {
+            // Final cooperative cancellation check before the externally-visible
+            // post-review action (approve / request changes / …). Without this a
+            // superseded run could still race an approve against an outdated diff.
+            context.requireActive("before posting post-review action");
+
             String owner = payload.getRepository().getOwner().getLogin();
             String repo = payload.getRepository().getName();
             Long prNumber = payload.getPullRequest().getNumber();

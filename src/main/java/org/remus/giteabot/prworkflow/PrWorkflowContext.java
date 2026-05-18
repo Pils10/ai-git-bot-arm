@@ -5,6 +5,7 @@ import org.remus.giteabot.gitea.model.WebhookPayload;
 
 import java.util.Objects;
 import java.util.function.BiConsumer;
+import java.util.function.BooleanSupplier;
 
 /**
  * Immutable execution context handed to {@link PrWorkflow#run(PrWorkflowContext)}.
@@ -23,6 +24,11 @@ import java.util.function.BiConsumer;
  *     <li>{@link #appendStep(String, String)} — append-only step log; the
  *     workflow can use it to record progress without owning a repository
  *     reference itself.</li>
+ *     <li>{@link #isCancelled()} / {@link #requireActive(String)} —
+ *     cooperative cancellation checks; workflows <strong>must</strong>
+ *     consult them before any external side effect (PR comments, status
+ *     checks, deployment triggers, …) so a superseded run cannot race
+ *     against the freshly started one.</li>
  * </ul>
  *
  * <p>In milestones M3+ this record gains accessors for the resolved
@@ -33,13 +39,26 @@ public record PrWorkflowContext(
         Bot bot,
         WebhookPayload payload,
         Long runId,
-        BiConsumer<String, String> stepAppender) {
+        BiConsumer<String, String> stepAppender,
+        BooleanSupplier cancellationCheck) {
 
     public PrWorkflowContext {
         Objects.requireNonNull(bot, "bot");
         Objects.requireNonNull(payload, "payload");
         Objects.requireNonNull(runId, "runId");
         Objects.requireNonNull(stepAppender, "stepAppender");
+        Objects.requireNonNull(cancellationCheck, "cancellationCheck");
+    }
+
+    /**
+     * Convenience constructor for tests that do not exercise cancellation
+     * semantics. Production code goes through {@link PrWorkflowOrchestrator},
+     * which always supplies a real cancellation probe backed by
+     * {@link PrWorkflowRunService}.
+     */
+    public PrWorkflowContext(Bot bot, WebhookPayload payload, Long runId,
+                             BiConsumer<String, String> stepAppender) {
+        this(bot, payload, runId, stepAppender, () -> false);
     }
 
     /**
@@ -51,6 +70,36 @@ public record PrWorkflowContext(
      */
     public void appendStep(String name, String logExcerpt) {
         stepAppender.accept(name, logExcerpt);
+    }
+
+    /**
+     * Returns {@code true} when the orchestrator has marked the current run
+     * as superseded by a newer one for the same pull request. The check
+     * involves a database read and is intended for use at strategic points
+     * inside long-running workflows (between LLM calls, before external
+     * side-effects), not in a tight loop.
+     */
+    public boolean isCancelled() {
+        return cancellationCheck.getAsBoolean();
+    }
+
+    /**
+     * Convenience wrapper around {@link #isCancelled()} that throws a
+     * {@link WorkflowCancelledException} (caught and recorded as
+     * {@link PrWorkflowRunStatus#CANCELLED} by the orchestrator) when the
+     * run has been superseded. Use this before any irreversible external
+     * action, for example:
+     * <pre>{@code
+     * context.requireActive("before posting PR comment");
+     * repoClient.postReviewComment(...);
+     * }</pre>
+     */
+    public void requireActive(String location) {
+        if (isCancelled()) {
+            throw new WorkflowCancelledException(
+                    "Run " + runId + " was superseded before: "
+                            + (location == null ? "(unspecified location)" : location));
+        }
     }
 }
 
