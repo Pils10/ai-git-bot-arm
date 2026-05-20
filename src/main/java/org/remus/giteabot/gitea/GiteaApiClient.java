@@ -3,11 +3,21 @@ package org.remus.giteabot.gitea;
 import lombok.extern.slf4j.Slf4j;
 import org.remus.giteabot.gitea.model.GiteaReview;
 import org.remus.giteabot.gitea.model.GiteaReviewComment;
+import org.remus.giteabot.repository.ArtifactCommentRenderer;
+import org.remus.giteabot.repository.ArtifactUploadSupport;
 import org.remus.giteabot.repository.RepositoryApiClient;
+import org.remus.giteabot.repository.WorkflowDispatchRequest;
+import org.remus.giteabot.repository.WorkflowRunStatus;
 import org.remus.giteabot.repository.model.RepositoryCredentials;
 import org.remus.giteabot.repository.model.Review;
 import org.remus.giteabot.repository.model.ReviewComment;
 import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.core.io.ByteArrayResource;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.util.LinkedMultiValueMap;
+import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestClient;
 
 import java.util.Base64;
@@ -70,6 +80,88 @@ public class GiteaApiClient implements RepositoryApiClient {
                 .retrieve()
                 .toBodilessEntity();
         log.info("Comment posted successfully");
+    }
+
+    /**
+     * Uploads the artifact via the Gitea issue-assets endpoint
+     * ({@code POST /api/v1/repos/{o}/{r}/issues/{n}/assets}) and posts a
+     * comment that links to the uploaded asset's
+     * {@code browser_download_url}.
+     *
+     * <p>Mirrors the GitLab override: inlineable images / text still go
+     * through {@link ArtifactCommentRenderer} (better reviewer UX); only the
+     * renderer's summary-only fallback (large or binary non-image artifacts)
+     * is replaced with a native upload. Upload failures degrade gracefully
+     * to the renderer summary comment.</p>
+     */
+    @Override
+    public void attachPullRequestArtifact(String owner, String repo, Long pullNumber,
+                                          String fileName, String contentType, byte[] payload) {
+        ArtifactCommentRenderer.RenderedComment rendered =
+                ArtifactCommentRenderer.render(fileName, contentType, payload);
+        if (rendered.mode() != ArtifactCommentRenderer.RenderMode.SUMMARY_ONLY) {
+            postPullRequestComment(owner, repo, pullNumber, rendered.markdown());
+            return;
+        }
+        try {
+            String linkMarkdown = uploadIssueAsset(owner, repo, pullNumber, fileName, contentType, payload);
+            int byteLen = payload == null ? 0 : payload.length;
+            postPullRequestComment(owner, repo, pullNumber,
+                    ArtifactUploadSupport.buildLinkComment(fileName, byteLen, linkMarkdown));
+        } catch (RuntimeException e) {
+            log.warn("Gitea native artifact upload for PR #{} in {}/{} failed: {} — falling back to summary comment",
+                    pullNumber, owner, repo, e.toString());
+            postPullRequestComment(owner, repo, pullNumber, rendered.markdown());
+        }
+    }
+
+    /**
+     * Calls the Gitea issue-assets endpoint and returns a Markdown link to
+     * the uploaded asset's {@code browser_download_url}. Visible for tests.
+     */
+    String uploadIssueAsset(String owner, String repo, Long issueNumber,
+                            String fileName, String contentType, byte[] payload) {
+        String safeName = (fileName == null || fileName.isBlank()) ? "artifact.bin" : fileName.trim();
+        MediaType mediaType = parseMediaType(contentType);
+
+        ByteArrayResource fileResource = new ByteArrayResource(payload == null ? new byte[0] : payload) {
+            @Override
+            public String getFilename() {
+                return safeName;
+            }
+        };
+        HttpHeaders fileHeaders = new HttpHeaders();
+        fileHeaders.setContentType(mediaType);
+        HttpEntity<ByteArrayResource> filePart = new HttpEntity<>(fileResource, fileHeaders);
+
+        MultiValueMap<String, Object> form = new LinkedMultiValueMap<>();
+        form.add("attachment", filePart);
+
+        Map<String, Object> response = giteaRestClient.post()
+                .uri("/api/v1/repos/{owner}/{repo}/issues/{index}/assets", owner, repo, issueNumber)
+                .contentType(MediaType.MULTIPART_FORM_DATA)
+                .body(form)
+                .retrieve()
+                .body(new ParameterizedTypeReference<>() {});
+        if (response == null) {
+            throw new IllegalStateException("Gitea issue-assets endpoint returned empty body");
+        }
+        Object url = response.get("browser_download_url");
+        if (url instanceof String u && !u.isBlank()) {
+            return ArtifactUploadSupport.linkMarkdown(safeName, u);
+        }
+        throw new IllegalStateException("Gitea issue-assets response missing 'browser_download_url'");
+    }
+
+    private static MediaType parseMediaType(String contentType) {
+        if (contentType == null || contentType.isBlank()) {
+            return MediaType.APPLICATION_OCTET_STREAM;
+        }
+        try {
+            return MediaType.parseMediaType(contentType);
+        } catch (RuntimeException e) {
+            return MediaType.APPLICATION_OCTET_STREAM;
+        }
     }
 
     @Override
@@ -283,6 +375,83 @@ public class GiteaApiClient implements RepositoryApiClient {
             return number.longValue();
         }
         return null;
+    }
+
+    // ---- CI workflow operations (M6) ----
+
+    @Override
+    public String dispatchWorkflow(WorkflowDispatchRequest request) {
+        log.info("Dispatching Gitea Actions workflow '{}' on ref {} for {}/{}",
+                request.workflowRef(), request.gitRef(), request.owner(), request.repo());
+        Long highestBefore = highestWorkflowRunId(request.owner(), request.repo(), request.workflowRef());
+        var body = new java.util.LinkedHashMap<String, Object>();
+        body.put("ref", request.gitRef());
+        if (!request.inputs().isEmpty()) {
+            body.put("inputs", request.inputs());
+        }
+        giteaRestClient.post()
+                .uri("/api/v1/repos/{owner}/{repo}/actions/workflows/{workflow}/dispatches",
+                        request.owner(), request.repo(), request.workflowRef())
+                .body(body)
+                .retrieve()
+                .toBodilessEntity();
+        long deadline = System.currentTimeMillis() + 15_000L;
+        while (System.currentTimeMillis() < deadline) {
+            Long latest = highestWorkflowRunId(request.owner(), request.repo(), request.workflowRef());
+            if (latest != null && (highestBefore == null || latest > highestBefore)) {
+                return String.valueOf(latest);
+            }
+            try {
+                Thread.sleep(1_000L);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("Interrupted while resolving new Gitea run id", e);
+            }
+        }
+        throw new IllegalStateException(
+                "Gitea Actions accepted the dispatch but no new run for workflow '"
+                        + request.workflowRef() + "' appeared within 15s. Make sure Gitea Actions (≥ 1.21) is enabled.");
+    }
+
+    @Override
+    public WorkflowRunStatus getWorkflowRun(String owner, String repo, String runId) {
+        try {
+            Map<String, Object> run = giteaRestClient.get()
+                    .uri("/api/v1/repos/{owner}/{repo}/actions/runs/{run_id}", owner, repo, runId)
+                    .retrieve()
+                    .body(new ParameterizedTypeReference<>() {});
+            if (run == null) return WorkflowRunStatus.NOT_FOUND;
+            String status = run.get("status") == null ? null : String.valueOf(run.get("status"));
+            String conclusion = run.get("conclusion") == null ? null : String.valueOf(run.get("conclusion"));
+            // Gitea Actions reuses the GitHub vocabulary (queued / in_progress / completed).
+            return org.remus.giteabot.github.GitHubApiClient.mapGitHubStatus(status, conclusion);
+        } catch (org.springframework.web.client.HttpClientErrorException.NotFound e) {
+            return WorkflowRunStatus.NOT_FOUND;
+        }
+    }
+
+    private Long highestWorkflowRunId(String owner, String repo, String workflow) {
+        try {
+            Map<String, Object> response = giteaRestClient.get()
+                    .uri(uriBuilder -> uriBuilder
+                            .path("/api/v1/repos/{owner}/{repo}/actions/workflows/{workflow}/runs")
+                            .queryParam("limit", 1)
+                            .build(owner, repo, workflow))
+                    .retrieve()
+                    .body(new ParameterizedTypeReference<>() {});
+            if (response == null) return null;
+            Object runs = response.get("workflow_runs");
+            if (runs instanceof List<?> list && !list.isEmpty() && list.get(0) instanceof Map<?, ?> first) {
+                Object id = first.get("id");
+                if (id instanceof Number n) return n.longValue();
+                if (id != null) return Long.parseLong(id.toString());
+            }
+            return null;
+        } catch (Exception e) {
+            log.debug("Could not list Gitea Actions runs for {}/{} workflow={}: {}",
+                    owner, repo, workflow, e.getMessage());
+            return null;
+        }
     }
 
     record ReviewRequest(String body, String event) {}

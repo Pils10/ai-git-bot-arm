@@ -4,6 +4,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.remus.giteabot.github.model.GitHubReview;
 import org.remus.giteabot.github.model.GitHubReviewComment;
 import org.remus.giteabot.repository.RepositoryApiClient;
+import org.remus.giteabot.repository.WorkflowDispatchRequest;
+import org.remus.giteabot.repository.WorkflowRunStatus;
 import org.remus.giteabot.repository.model.RepositoryCredentials;
 import org.remus.giteabot.repository.model.Review;
 import org.remus.giteabot.repository.model.ReviewComment;
@@ -297,16 +299,105 @@ public class GitHubApiClient implements RepositoryApiClient {
 
     // ---- Internal helpers ----
 
-    private String resolveRef(String owner, String repo, String ref) {
-        Map<String, Object> result = restClient.get()
-                .uri("/repos/{owner}/{repo}/git/ref/heads/{ref}", owner, repo, ref)
-                .retrieve()
-                .body(new ParameterizedTypeReference<>() {});
-        if (result != null && result.get("object") instanceof Map<?, ?> obj) {
-            return (String) obj.get("sha");
+    // ---- CI workflow operations (M6) ----
+
+    @Override
+    public String dispatchWorkflow(WorkflowDispatchRequest request) {
+        log.info("Dispatching GitHub Actions workflow '{}' on ref {} for {}/{}",
+                request.workflowRef(), request.gitRef(), request.owner(), request.repo());
+        Long highestBefore = highestWorkflowRunId(request.owner(), request.repo(), request.workflowRef());
+        var body = new java.util.LinkedHashMap<String, Object>();
+        body.put("ref", request.gitRef());
+        if (!request.inputs().isEmpty()) {
+            body.put("inputs", request.inputs());
         }
-        // Fallback: assume the ref is already a SHA
-        return ref;
+        restClient.post()
+                .uri("/repos/{owner}/{repo}/actions/workflows/{workflow}/dispatches",
+                        request.owner(), request.repo(), request.workflowRef())
+                .body(body)
+                .retrieve()
+                .toBodilessEntity();
+        // GitHub's dispatch endpoint does not return a run id; poll briefly
+        // for the next run that appeared after our trigger.
+        long deadline = System.currentTimeMillis() + 15_000L;
+        while (System.currentTimeMillis() < deadline) {
+            Long latest = highestWorkflowRunId(request.owner(), request.repo(), request.workflowRef());
+            if (latest != null && (highestBefore == null || latest > highestBefore)) {
+                return String.valueOf(latest);
+            }
+            try {
+                Thread.sleep(1_000L);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("Interrupted while resolving new GitHub run id", e);
+            }
+        }
+        throw new IllegalStateException(
+                "GitHub Actions accepted the dispatch but no new run for workflow '"
+                        + request.workflowRef() + "' appeared within 15s");
+    }
+
+    @Override
+    public WorkflowRunStatus getWorkflowRun(String owner, String repo, String runId) {
+        try {
+            Map<String, Object> run = restClient.get()
+                    .uri("/repos/{owner}/{repo}/actions/runs/{run_id}", owner, repo, runId)
+                    .retrieve()
+                    .body(new ParameterizedTypeReference<>() {});
+            if (run == null) {
+                return WorkflowRunStatus.NOT_FOUND;
+            }
+            String status = run.get("status") == null ? null : String.valueOf(run.get("status"));
+            String conclusion = run.get("conclusion") == null ? null : String.valueOf(run.get("conclusion"));
+            return mapGitHubStatus(status, conclusion);
+        } catch (org.springframework.web.client.HttpClientErrorException.NotFound e) {
+            return WorkflowRunStatus.NOT_FOUND;
+        }
+    }
+
+    @Override
+    public Map<String, String> getWorkflowRunOutputs(String owner, String repo, String runId) {
+        // GitHub Actions does not surface per-job `outputs` via REST. The
+        // CI_ACTION strategy falls back to the deployment-target preview-URL
+        // template; workflows that need to ship a dynamic URL should POST it
+        // to the bot's callbackUrl (see doc/PR_WORKFLOWS_CI_ACTIONS.md).
+        return Map.of();
+    }
+
+    private Long highestWorkflowRunId(String owner, String repo, String workflow) {
+        try {
+            Map<String, Object> response = restClient.get()
+                    .uri(uriBuilder -> uriBuilder
+                            .path("/repos/{owner}/{repo}/actions/workflows/{workflow}/runs")
+                            .queryParam("per_page", 1)
+                            .build(owner, repo, workflow))
+                    .retrieve()
+                    .body(new ParameterizedTypeReference<>() {});
+            if (response == null) return null;
+            Object runs = response.get("workflow_runs");
+            if (runs instanceof List<?> list && !list.isEmpty() && list.get(0) instanceof Map<?, ?> first) {
+                Object id = first.get("id");
+                if (id instanceof Number n) return n.longValue();
+                if (id != null) return Long.parseLong(id.toString());
+            }
+            return null;
+        } catch (Exception e) {
+            log.debug("Could not list GitHub Actions runs for {}/{} workflow={}: {}",
+                    owner, repo, workflow, e.getMessage());
+            return null;
+        }
+    }
+
+    public static WorkflowRunStatus mapGitHubStatus(String status, String conclusion) {
+        if (status == null) return WorkflowRunStatus.NOT_FOUND;
+        return switch (status) {
+            case "queued", "requested", "waiting", "pending" -> WorkflowRunStatus.QUEUED;
+            case "in_progress" -> WorkflowRunStatus.IN_PROGRESS;
+            case "completed" -> "success".equals(conclusion)
+                    ? WorkflowRunStatus.COMPLETED_SUCCESS
+                    : WorkflowRunStatus.COMPLETED_FAILURE;
+            default -> WorkflowRunStatus.IN_PROGRESS;
+        };
     }
 
     // ---- Request DTOs ----
