@@ -14,8 +14,12 @@
  *                                     from "in_progress" to "completed"
  *                                     after RUN_DURATION_MS.
  *
- *   GET  /repos/:owner/:repo/actions/workflows/:workflow/runs?per_page=1
- *        -> { workflow_runs: [ { id } ] }   (latest run for that workflow)
+ *   GET  /repos/:owner/:repo/actions/workflows/:workflow/runs
+ *        ?event=workflow_dispatch&branch=<name>&per_page=10
+ *        -> { workflow_runs: [ { id, head_branch, event } ] }
+ *        Matches the GitHub Actions REST filter shape so the bot's
+ *        race-safe run-id resolver (see GitHubApiClient.resolveNewRunId
+ *        in M6 fix #7) can scope to a specific branch/event.
  *
  *   GET  /repos/:owner/:repo/actions/runs/:run_id
  *        -> { status, conclusion }
@@ -90,27 +94,35 @@ app.get(
   "/repos/:owner/:repo/actions/workflows/:workflow/runs",
   (req, res) => {
     const { owner, repo, workflow } = req.params;
-    // Return the latest run for that (owner, repo, workflow) tuple.
-    let latest = null;
+    const wantEvent = req.query.event; // optional, e.g. "workflow_dispatch"
+    const wantBranch = req.query.branch; // optional
+    const perPage = Math.min(parseInt(req.query.per_page || "10", 10), 50);
+    // Return the latest matching runs for that (owner, repo, workflow) tuple.
+    // Apply the same event=workflow_dispatch + branch=… filter shape the
+    // real GitHub Actions API exposes — exercised by GitHubApiClient's
+    // correlation logic added in fix #7 of the M6 follow-up.
+    const matches = [];
     for (const run of runs.values()) {
-      if (
-        run.owner === owner &&
-        run.repo === repo &&
-        run.workflow === workflow &&
-        (latest === null || run.runId > latest.runId)
-      ) {
-        latest = run;
-      }
+      if (run.owner !== owner || run.repo !== repo || run.workflow !== workflow) continue;
+      if (wantEvent && wantEvent !== "workflow_dispatch") continue;
+      const headBranch = headBranchFor(run.ref);
+      if (wantBranch && wantBranch !== headBranch) continue;
+      matches.push({ id: run.runId, head_branch: headBranch, event: "workflow_dispatch" });
     }
-    if (!latest) {
-      return res.json({ total_count: 0, workflow_runs: [] });
-    }
+    matches.sort((a, b) => b.id - a.id);
     return res.json({
-      total_count: 1,
-      workflow_runs: [{ id: latest.runId }],
+      total_count: matches.length,
+      workflow_runs: matches.slice(0, perPage),
     });
   }
 );
+
+function headBranchFor(ref) {
+  if (!ref) return null;
+  if (ref.startsWith("refs/heads/")) return ref.substring("refs/heads/".length);
+  if (ref.startsWith("refs/")) return null; // pull/tag/etc.
+  return ref;
+}
 
 app.get("/repos/:owner/:repo/actions/runs/:runId", (req, res) => {
   const { owner, repo, runId } = req.params;

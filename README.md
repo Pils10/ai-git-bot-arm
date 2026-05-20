@@ -57,7 +57,7 @@ The **Full-stack QA** workflow needs a per-PR environment to test against. Diffe
 | **`STATIC`** | Vercel / Netlify / GitLab review apps / Render — anything that already creates a preview-per-PR at a predictable URL. | [Marco the Frontend Lead](doc/refactoring/STATIC_DEPLOYMENT_USER_STORY.md) | ✅ shipped (M3) |
 | **`WEBHOOK`** | Jenkins / TeamCity / scripts behind a corporate firewall — anywhere you can `curl` an HMAC-signed callback back to the bot. | [Priya the DevOps Engineer](doc/refactoring/WEBHOOK_DEPLOYMENT_USER_STORY.md) | ✅ shipped (M3) |
 | **`MCP`** | Internal platform teams already exposing deploy/status/teardown over MCP — zero extra services, single whitelist, no inbound callback. | [Alex the Platform Engineer](doc/refactoring/MCP_DEPLOYMENT_USER_STORY.md) (laptop reproduction: `systemtest/docker-compose-mcp-deployment.yml`) | ✅ shipped (M5) |
-| **`CI_ACTION`** | Provider-native CI (GitHub Actions / GitLab CI / Bitbucket Pipelines / Gitea Actions) — dispatched via existing repo credentials, zero new secrets. | [Sam the SRE](doc/refactoring/CI_ACTION_DEPLOYMENT_USER_STORY.md) | ⏳ planned (M6) |
+| **`CI_ACTION`** | Provider-native CI (GitHub Actions / GitLab CI / Bitbucket Pipelines / Gitea Actions) — dispatched via existing repo credentials, zero new secrets. | [Sam the SRE](doc/refactoring/CI_ACTION_DEPLOYMENT_USER_STORY.md) (operator recipes: [`doc/PR_WORKFLOWS_CI_ACTIONS.md`](doc/PR_WORKFLOWS_CI_ACTIONS.md); laptop reproduction: `systemtest/docker-compose-ci-action.yml`) | ✅ shipped (M6) |
 
 > The full **roadmap, milestones, and design rationale** for the agentic PR workflows live under [`doc/refactoring/`](doc/refactoring/README.md).
 

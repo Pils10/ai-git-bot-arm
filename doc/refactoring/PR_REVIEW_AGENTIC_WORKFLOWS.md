@@ -1,8 +1,18 @@
 # Extending PR Review with Agentic Workflows
 
-> Status: **Concept / architecture sketch** — not yet implemented.
-> Generated: 2026-05-18.
-> Target version: AI-Git-Bot ≥ 1.7
+> **Status: original design sketch — most of M1 – M6 is now shipped.**
+> Originally written 2026-05-18 as a forward-looking concept.
+> Kept in the repository as **historical design context**: the SPI
+> shapes, naming, and overall layering described here closely match
+> what ended up being implemented. For the **current, authoritative**
+> view see:
+> - [`PR_REVIEW_AGENTIC_WORKFLOWS_IMPLEMENTATION.md`](PR_REVIEW_AGENTIC_WORKFLOWS_IMPLEMENTATION.md) — milestone-by-milestone progress, what each iteration actually delivered.
+> - [`README.md`](./README.md) — milestone status table and version history.
+> - [`../PR_WORKFLOWS.md`](../PR_WORKFLOWS.md), [`../PR_WORKFLOWS_E2E.md`](../PR_WORKFLOWS_E2E.md), [`../PR_WORKFLOWS_CI_ACTIONS.md`](../PR_WORKFLOWS_CI_ACTIONS.md) — operator-facing recipes.
+>
+> Treat the rest of this document as the *original intent*, not a spec of current behavior. Where wording diverges from the shipped product, the implementation docs above win.
+>
+> Target version (as originally written): AI-Git-Bot ≥ 1.7
 > Related documents: [ARCHITECTURE.md](../ARCHITECTURE.md), [AGENT.md](../AGENT.md),
 > [BOT_TOOL_CONFIGURATIONS.md](../BOT_TOOL_CONFIGURATIONS.md),
 > [MCP_SERVER_HANDLING.md](../MCP_SERVER_HANDLING.md),

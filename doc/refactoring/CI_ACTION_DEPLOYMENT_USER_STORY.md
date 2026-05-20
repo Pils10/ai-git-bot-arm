@@ -90,10 +90,12 @@ With only `WEBHOOK` and `STATIC` shipped, Sam's options are:
 - [x] Reuses existing provider credentials — the bot calls the dispatch
       endpoint with the same `GitIntegration` token it already uses to
       comment on PRs. No new secret per target.
-- [x] Test bar: **798 / 798** green (+44 over M5's 754), including
+- [x] Test bar: the full Maven test suite is green and includes
       `CiActionTriggerStrategyTest`, `CiActionPollerTest`,
       `WorkflowRunStatusMappingTest`, and per-provider
-      `*ApiClientArtifactUploadTest` extensions.
+      `*ApiClientArtifactUploadTest` extensions. For the exact
+      regression-test count at the time of release see the version
+      history in [`doc/refactoring/README.md`](./README.md).
 
 ---
 

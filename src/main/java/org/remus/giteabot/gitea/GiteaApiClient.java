@@ -383,7 +383,12 @@ public class GiteaApiClient implements RepositoryApiClient {
     public String dispatchWorkflow(WorkflowDispatchRequest request) {
         log.info("Dispatching Gitea Actions workflow '{}' on ref {} for {}/{}",
                 request.workflowRef(), request.gitRef(), request.owner(), request.repo());
-        Long highestBefore = highestWorkflowRunId(request.owner(), request.repo(), request.workflowRef());
+        // See GitHubApiClient.dispatchWorkflow for the correlation strategy —
+        // Gitea Actions mirrors the GitHub Actions REST shape so the same
+        // (event=workflow_dispatch [, branch]) filter applies.
+        String branch = org.remus.giteabot.github.GitHubApiClient.deriveBranchFilter(request.gitRef());
+        java.util.Set<Long> existing = listMatchingRunIds(
+                request.owner(), request.repo(), request.workflowRef(), branch);
         var body = new java.util.LinkedHashMap<String, Object>();
         body.put("ref", request.gitRef());
         if (!request.inputs().isEmpty()) {
@@ -397,9 +402,16 @@ public class GiteaApiClient implements RepositoryApiClient {
                 .toBodilessEntity();
         long deadline = System.currentTimeMillis() + 15_000L;
         while (System.currentTimeMillis() < deadline) {
-            Long latest = highestWorkflowRunId(request.owner(), request.repo(), request.workflowRef());
-            if (latest != null && (highestBefore == null || latest > highestBefore)) {
-                return String.valueOf(latest);
+            Long candidate = resolveNewRunId(
+                    request.owner(), request.repo(), request.workflowRef(), branch, existing);
+            if (candidate != null) {
+                if (branch == null) {
+                    log.warn("Resolved Gitea Actions run id={} for workflow '{}' on ref {} without"
+                                    + " branch correlation (non-branch ref). In high-concurrency repos"
+                                    + " this may attach to a different dispatch.",
+                            candidate, request.workflowRef(), request.gitRef());
+                }
+                return String.valueOf(candidate);
             }
             try {
                 Thread.sleep(1_000L);
@@ -430,27 +442,76 @@ public class GiteaApiClient implements RepositoryApiClient {
         }
     }
 
-    private Long highestWorkflowRunId(String owner, String repo, String workflow) {
+    private java.util.Set<Long> listMatchingRunIds(
+            String owner, String repo, String workflow, String branch) {
+        java.util.Set<Long> ids = new java.util.HashSet<>();
+        for (Map<String, Object> run : listRecentRuns(owner, repo, workflow, branch)) {
+            Object id = run.get("id");
+            if (id instanceof Number n) ids.add(n.longValue());
+            else if (id != null) {
+                try { ids.add(Long.parseLong(id.toString())); } catch (NumberFormatException ignored) {}
+            }
+        }
+        return ids;
+    }
+
+    private Long resolveNewRunId(
+            String owner, String repo, String workflow, String branch,
+            java.util.Set<Long> existing) {
+        Long bestId = null;
+        for (Map<String, Object> run : listRecentRuns(owner, repo, workflow, branch)) {
+            Object idObj = run.get("id");
+            Long id;
+            if (idObj instanceof Number n) {
+                id = n.longValue();
+            } else if (idObj == null) {
+                continue;
+            } else {
+                try { id = Long.parseLong(idObj.toString()); }
+                catch (NumberFormatException e) { continue; }
+            }
+            if (existing.contains(id)) continue;
+            if (branch != null) {
+                Object headBranch = run.get("head_branch");
+                if (headBranch != null && !branch.equals(String.valueOf(headBranch))) continue;
+            }
+            if (bestId == null || id < bestId) bestId = id;
+        }
+        return bestId;
+    }
+
+    private List<Map<String, Object>> listRecentRuns(
+            String owner, String repo, String workflow, String branch) {
         try {
             Map<String, Object> response = giteaRestClient.get()
-                    .uri(uriBuilder -> uriBuilder
-                            .path("/api/v1/repos/{owner}/{repo}/actions/workflows/{workflow}/runs")
-                            .queryParam("limit", 1)
-                            .build(owner, repo, workflow))
+                    .uri(uriBuilder -> {
+                        var b = uriBuilder
+                                .path("/api/v1/repos/{owner}/{repo}/actions/workflows/{workflow}/runs")
+                                .queryParam("limit", 10)
+                                .queryParam("event", "workflow_dispatch");
+                        if (branch != null) b.queryParam("branch", branch);
+                        return b.build(owner, repo, workflow);
+                    })
                     .retrieve()
                     .body(new ParameterizedTypeReference<>() {});
-            if (response == null) return null;
+            if (response == null) return List.of();
             Object runs = response.get("workflow_runs");
-            if (runs instanceof List<?> list && !list.isEmpty() && list.get(0) instanceof Map<?, ?> first) {
-                Object id = first.get("id");
-                if (id instanceof Number n) return n.longValue();
-                if (id != null) return Long.parseLong(id.toString());
+            if (runs instanceof List<?> list) {
+                List<Map<String, Object>> out = new java.util.ArrayList<>(list.size());
+                for (Object item : list) {
+                    if (item instanceof Map<?, ?> m) {
+                        @SuppressWarnings("unchecked")
+                        Map<String, Object> typed = (Map<String, Object>) m;
+                        out.add(typed);
+                    }
+                }
+                return out;
             }
-            return null;
+            return List.of();
         } catch (Exception e) {
-            log.debug("Could not list Gitea Actions runs for {}/{} workflow={}: {}",
-                    owner, repo, workflow, e.getMessage());
-            return null;
+            log.debug("Could not list Gitea Actions runs for {}/{} workflow={} branch={}: {}",
+                    owner, repo, workflow, branch, e.getMessage());
+            return List.of();
         }
     }
 

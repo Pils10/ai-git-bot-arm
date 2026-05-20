@@ -21,18 +21,21 @@ plan → deploy → author → run → comment
 > `attachPullRequestArtifact` (GitLab uploads, Gitea issue assets,
 > Bitbucket downloads; GitHub keeps the inline default — see below),
 > and the `regenerate-tests` feedback is threaded into the planner's
-> user message via `PrWorkflowContext.hints`. Test bar: 722 green.
-> The composite WireMock-based end-to-end system test is intentionally
-> deferred — the existing per-component tests cover all building
-> blocks.
+> user message via `PrWorkflowContext.hints`. The composite
+> WireMock-based end-to-end system test is intentionally deferred — the
+> existing per-component tests cover all building blocks. For the
+> per-release regression-test counts see the version history in
+> [`doc/refactoring/README.md`](./refactoring/README.md).
 
 ## Enabling the workflow on a bot
 
 1. Make sure the bot has a **deployment target** configured under
    *System settings → Deployment targets* (see [`PR_WORKFLOWS.md`](./PR_WORKFLOWS.md)
-   for the available strategies — `STATIC`, `WEBHOOK_TRIGGER`, and the
-   upcoming `MCP_BASED`). Without a target the workflow aborts immediately
-   and posts a clearly labelled skip-comment.
+   for the available strategies — `STATIC`, `WEBHOOK`, `MCP`, and
+   `CI_ACTION`, all shipped; cross-reference the persona-driven
+   walk-throughs under [`doc/refactoring/`](./refactoring/README.md) if
+   you're unsure which one to pick). Without a target the workflow
+   aborts immediately and posts a clearly labelled skip-comment.
 2. Open the bot's *Workflow configuration*. Either pick the **seeded
    `Full-stack QA` configuration** (shipped by Flyway `V18`, has
    `review` + `e2e-test` pre-enabled with `framework=playwright`,

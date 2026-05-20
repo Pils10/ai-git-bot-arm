@@ -237,14 +237,22 @@ public class BotWebhookService {
      * <p>Also invokes {@link E2eTestPrCloseHandler#onPrClosed} so the M4
      * {@code E2ETestWorkflow} can release any preview deployments,
      * sandbox workspaces and ephemeral test suites it created for the PR.
-     * Best-effort: failures are logged but never abort the close handler.</p>
+     * Both close-handlers are wrapped in their own try/catch so a failure
+     * in one (e.g. the review-session cleanup) never blocks the other
+     * (e.g. the E2E preview teardown) — leaked preview envs and stale
+     * test suites on PR close would otherwise accumulate silently.</p>
      */
     public void handlePrClosed(Bot bot, WebhookPayload payload) {
         if (bot.getBotType() == BotType.WRITER) {
             log.debug("[Bot '{}'] Writer bot ignores pull request closed event", bot.getName());
             return;
         }
-        createCodeReviewService(bot).handlePrClosed(payload);
+        try {
+            createCodeReviewService(bot).handlePrClosed(payload);
+        } catch (RuntimeException e) {
+            log.warn("[Bot '{}'] CodeReviewService.handlePrClosed threw {} — continuing with E2E teardown",
+                    bot.getName(), e.toString());
+        }
         try {
             Long prNumber = payload.getPullRequest() == null
                     ? null

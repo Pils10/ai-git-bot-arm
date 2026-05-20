@@ -36,10 +36,10 @@ The Full-stack QA workflow needs a per-PR environment to test against. Teams alr
 
 | Strategy | Best for | Concrete user story |
 |---|---|---|
-| **`STATIC`** ✅ | Vercel / Netlify / GitLab review apps / Render — anything already creating preview-per-PR at a predictable URL. | [Marco the Frontend Lead](https://github.com/tmseidel/anthropic-gitea-bot/blob/main/doc/refactoring/STATIC_DEPLOYMENT_USER_STORY.md) |
-| **`WEBHOOK`** ✅ | Jenkins / TeamCity / scripts behind a firewall — anywhere you can `curl` an HMAC-signed callback back to the bot. | [Priya the DevOps Engineer](https://github.com/tmseidel/anthropic-gitea-bot/blob/main/doc/refactoring/WEBHOOK_DEPLOYMENT_USER_STORY.md) |
-| **`MCP`** ✅ | Internal platform teams already exposing deploy/status/teardown over MCP — zero extra services, single whitelist, no inbound callback. | [Alex the Platform Engineer](https://github.com/tmseidel/anthropic-gitea-bot/blob/main/doc/refactoring/MCP_DEPLOYMENT_USER_STORY.md) (laptop reproduction: `systemtest/docker-compose-mcp-deployment.yml`) |
-| **`CI_ACTION`** ⏳ | Provider-native CI (GitHub Actions / GitLab CI / Bitbucket Pipelines / Gitea Actions) — dispatched via existing repo credentials, no new secrets. | [Sam the SRE](https://github.com/tmseidel/anthropic-gitea-bot/blob/main/doc/refactoring/CI_ACTION_DEPLOYMENT_USER_STORY.md) (planned M6) |
+| **`STATIC`** ✅ | Vercel / Netlify / GitLab review apps / Render — anything already creating preview-per-PR at a predictable URL. | [Marco the Frontend Lead](https://github.com/tmseidel/ai-git-bot/blob/main/doc/refactoring/STATIC_DEPLOYMENT_USER_STORY.md) |
+| **`WEBHOOK`** ✅ | Jenkins / TeamCity / scripts behind a firewall — anywhere you can `curl` an HMAC-signed callback back to the bot. | [Priya the DevOps Engineer](https://github.com/tmseidel/ai-git-bot/blob/main/doc/refactoring/WEBHOOK_DEPLOYMENT_USER_STORY.md) |
+| **`MCP`** ✅ | Internal platform teams already exposing deploy/status/teardown over MCP — zero extra services, single whitelist, no inbound callback. | [Alex the Platform Engineer](https://github.com/tmseidel/ai-git-bot/blob/main/doc/refactoring/MCP_DEPLOYMENT_USER_STORY.md) (laptop reproduction: `systemtest/docker-compose-mcp-deployment.yml`) |
+| **`CI_ACTION`** ✅ | Provider-native CI (GitHub Actions / GitLab CI / Bitbucket Pipelines / Gitea Actions) — dispatched via existing repo credentials, no new secrets. | [Sam the SRE](https://github.com/tmseidel/ai-git-bot/blob/main/doc/refactoring/CI_ACTION_DEPLOYMENT_USER_STORY.md) — operator recipes: [`doc/PR_WORKFLOWS_CI_ACTIONS.md`](https://github.com/tmseidel/ai-git-bot/blob/main/doc/PR_WORKFLOWS_CI_ACTIONS.md) (shipped M6) |
 
 ## Quick Start
 
@@ -183,18 +183,18 @@ Built-in health check runs every 30s with a 30s start period.
 
 ## Source Code & Documentation
 
-- [GitHub Repository](https://github.com/tmseidel/anthropic-gitea-bot)
-- [User Guide](https://github.com/tmseidel/anthropic-gitea-bot/blob/main/doc/USER_GUIDE.md)
-- [Architecture](https://github.com/tmseidel/anthropic-gitea-bot/blob/main/doc/ARCHITECTURE.md)
-- [Agent Documentation](https://github.com/tmseidel/anthropic-gitea-bot/blob/main/doc/AGENT.md)
-- [PR Workflows guide](https://github.com/tmseidel/anthropic-gitea-bot/blob/main/doc/PR_WORKFLOWS.md) — review / E2E / deployment targets / slash commands
-- [PR Workflows roadmap + user stories](https://github.com/tmseidel/anthropic-gitea-bot/blob/main/doc/refactoring/README.md) — persona-driven stories for `STATIC` / `WEBHOOK` / `MCP` / `CI_ACTION`
-- [MCP Server Handling](https://github.com/tmseidel/anthropic-gitea-bot/blob/main/doc/MCP_SERVER_HANDLING.md)
-- [Gitea Setup Guide](https://github.com/tmseidel/anthropic-gitea-bot/blob/main/doc/GITEA_SETUP.md)
-- [GitHub Setup Guide](https://github.com/tmseidel/anthropic-gitea-bot/blob/main/doc/GITHUB_SETUP.md)
-- [GitLab Setup Guide](https://github.com/tmseidel/anthropic-gitea-bot/blob/main/doc/GITLAB_SETUP.md)
-- [Bitbucket Setup Guide](https://github.com/tmseidel/anthropic-gitea-bot/blob/main/doc/BITBUCKET_SETUP.md)
-- [Deployment Guide](https://github.com/tmseidel/anthropic-gitea-bot/blob/main/doc/DEPLOYMENT.md)
+- [GitHub Repository](https://github.com/tmseidel/ai-git-bot)
+- [User Guide](https://github.com/tmseidel/ai-git-bot/blob/main/doc/USER_GUIDE.md)
+- [Architecture](https://github.com/tmseidel/ai-git-bot/blob/main/doc/ARCHITECTURE.md)
+- [Agent Documentation](https://github.com/tmseidel/ai-git-bot/blob/main/doc/AGENT.md)
+- [PR Workflows guide](https://github.com/tmseidel/ai-git-bot/blob/main/doc/PR_WORKFLOWS.md) — review / E2E / deployment targets / slash commands
+- [PR Workflows roadmap + user stories](https://github.com/tmseidel/ai-git-bot/blob/main/doc/refactoring/README.md) — persona-driven stories for `STATIC` / `WEBHOOK` / `MCP` / `CI_ACTION`
+- [MCP Server Handling](https://github.com/tmseidel/ai-git-bot/blob/main/doc/MCP_SERVER_HANDLING.md)
+- [Gitea Setup Guide](https://github.com/tmseidel/ai-git-bot/blob/main/doc/GITEA_SETUP.md)
+- [GitHub Setup Guide](https://github.com/tmseidel/ai-git-bot/blob/main/doc/GITHUB_SETUP.md)
+- [GitLab Setup Guide](https://github.com/tmseidel/ai-git-bot/blob/main/doc/GITLAB_SETUP.md)
+- [Bitbucket Setup Guide](https://github.com/tmseidel/ai-git-bot/blob/main/doc/BITBUCKET_SETUP.md)
+- [Deployment Guide](https://github.com/tmseidel/ai-git-bot/blob/main/doc/DEPLOYMENT.md)
 
 ## License
 
