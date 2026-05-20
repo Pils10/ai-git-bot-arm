@@ -172,6 +172,11 @@ class E2eTestPrCloseHandlerTest {
                     .filter(s -> prNumber.equals(s.getPrNumber()) && s.getLifecycleMode() == mode)
                     .toList();
         }
+        @Override public List<PrTestSuite> findByRunId(Long runId) {
+            return entities.values().stream()
+                    .filter(s -> runId != null && runId.equals(s.getRunId()))
+                    .toList();
+        }
         @Override public <S extends PrTestSuite> S save(S entity) { entities.put(entity.getId(), entity); return entity; }
         @Override public <S extends PrTestSuite> List<S> saveAll(Iterable<S> entities) {
             List<S> out = new ArrayList<>();

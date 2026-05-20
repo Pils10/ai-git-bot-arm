@@ -328,6 +328,11 @@ class E2ETestWorkflowTest {
                     .filter(s -> prNumber.equals(s.getPrNumber()) && s.getLifecycleMode() == m)
                     .toList();
         }
+        @Override public java.util.List<PrTestSuite> findByRunId(Long runId) {
+            return entities.values().stream()
+                    .filter(s -> runId != null && runId.equals(s.getRunId()))
+                    .toList();
+        }
         @Override public <S extends PrTestSuite> S save(S entity) {
             if (entity.getId() == null) entity.setId(sequence++);
             entities.put(entity.getId(), entity);

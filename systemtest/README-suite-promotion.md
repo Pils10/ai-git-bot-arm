@@ -2,7 +2,7 @@
 
 End-to-end recipe demonstrating the three M7 "non-ephemeral" lifecycle
 modes on a real Gitea instance. Companion to
-[`doc/refactoring/SUITE_PROMOTION_USER_STORY.md`](../doc/refactoring/SUITE_PROMOTION_USER_STORY.md)
+[`doc/agentic-workflows/SUITE_PROMOTION_USER_STORY.md`](../doc/agentic-workflows/SUITE_PROMOTION_USER_STORY.md)
 (the *why*) and
 [`doc/PR_WORKFLOWS_E2E.md` § Suite lifecycle modes](../doc/PR_WORKFLOWS_E2E.md#suite-lifecycle-modes-m7)
 (the per-mode protocol).
@@ -130,6 +130,38 @@ repository: …
 
 The parent run's terminal status is unchanged — promotion failures
 never roll back the original workflow.
+
+### Nightly retention GC
+
+`offer-as-pr` and `promote-on-merge` suites are *kept* in the bot
+database after PR close so the dashboard can show "promoted as
+PR #N". The nightly `PromotedSuiteGarbageCollector` retires the
+in-DB suite once `PrWorkflowRun.finishedAt` is older than the
+configured retention window (default `P30D`). To exercise the GC
+without waiting a month, restart the bot with:
+
+```bash
+SPRING_PROFILES_ACTIVE=local \
+  PRWORKFLOW_E2E_PROMOTION_RETENTION=PT1M \
+  PRWORKFLOW_E2E_PROMOTION_GC_CRON='*/30 * * * * *' \
+  mvn spring-boot:run
+```
+
+This drops retention to 60 seconds and runs the cron every 30 s.
+One minute after the parent run finished you should see:
+
+```
+PromotedSuiteGarbageCollector: deleted 3 stale suite row(s) (retention=PT1M)
+```
+
+Check that:
+
+- `pr_test_suites` no longer contains rows for the promoted run
+  (`SELECT * FROM pr_test_suites WHERE run_id = <runId>` → empty).
+- `pr_workflow_runs.follow_up_pr_number` is still populated — the
+  dashboard link to PR #4242 / #5050 keeps working.
+- The follow-up PR on Gitea is untouched — promotion artifacts live
+  in git, not the bot DB.
 
 ## 5. Cleanup
 
