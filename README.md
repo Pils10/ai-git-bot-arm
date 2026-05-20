@@ -44,7 +44,7 @@ Each workflow is a **first-class, named PR workflow** you can enable per bot via
 | **Issue → Better Issue (writer agent)** | Issue assigned to a *writer* bot | A structured `AI Created Issue` with acceptance criteria | ✅ shipped |
 | **Interactive Q&A** | `@bot` mention in any PR or inline review comment | Threaded reply with file/diff context | ✅ shipped |
 | **Full-stack QA (E2E tests)** | PR opened on a bot with an `e2e-test` workflow + deployment target | Generated Playwright suite, run report posted to PR, environment torn down on PR close | ✅ shipped |
-| **Suite promotion** | Operator opts in per suite | A follow-up PR that "graduates" a generated suite into the repo | ⏳ planned (M7) |
+| **Suite promotion** | Operator opts in per suite | A follow-up PR that "graduates" a generated suite into the repo | ✅ shipped (M7) |
 
 > See the [PR Workflows guide](doc/PR_WORKFLOWS.md) and [Agent documentation](doc/AGENT.md) for the operator-facing details.
 

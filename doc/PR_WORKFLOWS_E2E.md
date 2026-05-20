@@ -231,6 +231,56 @@ docker compose -f systemtest/docker-compose-e2e-sample.yml up --build
 # app and posts the run summary back on the PR.
 ```
 
+## Suite lifecycle modes (M7)
+
+By default a generated test suite is **ephemeral** — the bot deletes the
+suite (and its `PrTestCase` rows) the moment the parent PR closes.
+The `e2e-test` workflow exposes a single `suiteLifecycle` param that
+graduates good suites from "throwaway scratchpad" to "real code in the
+repo". Four modes are supported:
+
+| `suiteLifecycle` | Trigger | Target branch | Target dir | Resulting follow-up PR |
+|---|---|---|---|---|
+| `ephemeral` *(default)* | — | — | — | None — suite is deleted on PR close. |
+| `commit-to-pr` | Successful run on the feature PR | feature branch (direct commit) | `tests/e2e/pr-{n}/` | None — tests land directly on the feature branch. |
+| `offer-as-pr` | Successful run on the feature PR | `ai-tests/pr-{n}` → feature branch | `tests/e2e/pr-{n}/` | "Add E2E tests for PR #N" — the author reviews tests in isolation. |
+| `promote-on-merge` | PR-merged webhook on the parent PR | `ai-tests/promoted-pr-{n}` → default branch | `tests/e2e/` | "Promote E2E tests from merged PR #N" — tests join the standard CI matrix. |
+
+**Idempotency.** `PrWorkflowRun.followUpPrNumber` is set on the first
+successful promotion. Re-runs (`@bot rerun-tests`), late merge events
+and webhook retries all observe the populated field and no-op.
+
+**Conflict policy.** If `tests/e2e/<file>` already exists, the bot
+inserts a numeric suffix before the first dot:
+`login.spec.ts → login_2.spec.ts → login_3.spec.ts`. The chosen final
+paths are listed in the follow-up PR description so reviewers see
+exactly what landed.
+
+**Failure handling.** Workspace / git / API failures degrade to a
+"❌ Promotion failed — …" comment on the parent PR. The parent run's
+terminal status is never rolled back — promotion is best-effort.
+
+**Teardown.** `ephemeral` and `commit-to-pr` suites are deleted on PR
+close (no longer needed). `offer-as-pr` / `promote-on-merge` suites are
+kept so the dashboard can correlate the parent run with its follow-up
+PR. A nightly `PromotedSuiteGarbageCollector`
+(`@Scheduled` cron, default 03:17 server-time, configurable via
+`prworkflow.e2e.promotion.gc-cron`) removes the in-DB suite rows once
+the owning run finished more than `prworkflow.e2e.promotion.retention`
+ago (default `P30D`). The promoted-PR link on `PrWorkflowRun` is
+preserved so the dashboard keeps showing "promoted as PR #N".
+
+**Security note.** Promoted tests run in the standard CI on the
+default branch and may need manual secret review — selectors and
+fixtures are LLM-generated and could leak environment-specific URLs,
+test usernames or recorded responses. Treat each follow-up PR like
+any other contribution: code review, branch-protection rules, secret
+scanners all apply unchanged.
+
+**Recipe.** A laptop-runnable walkthrough that exercises each mode
+against a real Gitea instance lives at
+[`systemtest/README-suite-promotion.md`](../systemtest/README-suite-promotion.md).
+
 ## Coming next (post-wave 2)
 
 Already shipped in wave 2 / iterations 1 – 4:

@@ -541,6 +541,19 @@ Bitbucket Pipelines) instead of a custom webhook endpoint.
 
 ## M7 — Suite Promotion Workflow (optional, 1 week)
 
+> **Status — ✅ shipped.** `SuitePromotionService` (`OFFER_AS_PR` /
+> `PROMOTE_ON_MERGE` / `COMMIT_TO_PR` + the safe `EPHEMERAL` default),
+> conflict-resolving file naming (`_2`, `_3`, …), idempotency guard via
+> `PrWorkflowRun.followUpPrNumber`, lifecycle-aware teardown in
+> `E2eTestPrCloseHandler`, and a nightly `PromotedSuiteGarbageCollector`
+> (`@Scheduled` cron, retention via `prworkflow.e2e.promotion.retention`,
+> default `P30D`) that retires stale generated suites while keeping the
+> promoted-PR link on `PrWorkflowRun`. Operator story:
+> [`SUITE_PROMOTION_USER_STORY.md`](./SUITE_PROMOTION_USER_STORY.md);
+> recipe: [`doc/PR_WORKFLOWS_E2E.md`](../PR_WORKFLOWS_E2E.md#suite-lifecycle-modes-m7);
+> walkthrough: [`systemtest/README-suite-promotion.md`](../../systemtest/README-suite-promotion.md);
+> migration: [`doc/MIGRATION_1.6_TO_1.7.md`](../MIGRATION_1.6_TO_1.7.md).
+
 ### Goal
 Allow the per-PR generated test suite to leave its ephemeral status and become
 part of the repository under operator control.

@@ -105,7 +105,7 @@ public class SuitePromotionService {
         String baseBranch = switch (mode) {
             case PROMOTE_ON_MERGE -> client.getDefaultBranch(repoOwner, repoName);
             case OFFER_AS_PR, COMMIT_TO_PR -> featureBranch;
-            default -> featureBranch;
+            case EPHEMERAL -> throw new IllegalStateException("EPHEMERAL rejected above");
         };
         if (baseBranch == null || baseBranch.isBlank()) {
             return Outcome.failure("Cannot determine base branch for mode " + mode);
@@ -117,9 +117,9 @@ public class SuitePromotionService {
 
         String workBranch = switch (mode) {
             case PROMOTE_ON_MERGE -> "ai-tests/promoted-pr-" + prNumber;
-            case OFFER_AS_PR -> "ai-tests/pr-" + prNumber;
-            case COMMIT_TO_PR -> baseBranch;
-            default -> "ai-tests/pr-" + prNumber;
+            case OFFER_AS_PR      -> "ai-tests/pr-" + prNumber;
+            case COMMIT_TO_PR     -> baseBranch;
+            case EPHEMERAL        -> throw new IllegalStateException("EPHEMERAL rejected above");
         };
 
         WorkspaceResult ws = workspaceService.prepareWorkspace(repoOwner, repoName, baseBranch,
@@ -257,9 +257,9 @@ public class SuitePromotionService {
     private String commitMessage(SuiteLifecycleMode mode, long prNumber) {
         return switch (mode) {
             case PROMOTE_ON_MERGE -> "test(e2e): promote generated tests from merged PR #" + prNumber;
-            case OFFER_AS_PR     -> "test(e2e): generated tests for PR #" + prNumber;
-            case COMMIT_TO_PR    -> "test(e2e): add generated tests for PR #" + prNumber;
-            default              -> "test(e2e): add generated tests";
+            case OFFER_AS_PR      -> "test(e2e): generated tests for PR #" + prNumber;
+            case COMMIT_TO_PR     -> "test(e2e): add generated tests for PR #" + prNumber;
+            case EPHEMERAL        -> throw new IllegalStateException("EPHEMERAL never reaches commitMessage");
         };
     }
 

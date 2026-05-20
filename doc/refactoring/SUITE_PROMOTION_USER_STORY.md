@@ -79,6 +79,14 @@ With only `ephemeral` lifecycle:
       deleted on PR close (no longer needed). `offer-as-pr` /
       `promote-on-merge` suites are kept so the dashboard can correlate
       the parent run with the follow-up PR.
+- [x] **Nightly retention GC**: `PromotedSuiteGarbageCollector`
+      (`@Scheduled` cron, default 03:17 server-time) deletes the in-DB
+      `PrTestSuite` rows once `PrWorkflowRun.finishedAt` is older than
+      `prworkflow.e2e.promotion.retention` (default `P30D`) — the
+      promoted-PR link on the run is preserved so the dashboard keeps
+      surfacing "promoted as PR #N". Cases are removed via the existing
+      `orphanRemoval=true` cascade. No webhook traffic to the four
+      provider APIs required.
 
 ---
 

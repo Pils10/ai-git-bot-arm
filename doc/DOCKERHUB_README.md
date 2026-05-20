@@ -28,7 +28,7 @@ AI-Git-Bot turns those chores into **repeatable, automated workflows** that run 
 | **Issue → Better Issue** (writer agent) | Issue assigned to a writer bot | A structured `AI Created Issue` with acceptance criteria | ✅ |
 | **Interactive Q&A** | `@bot` mention in PR / inline review comment | Threaded reply with file + diff context | ✅ |
 | **Full-stack QA** (E2E tests) | PR opened on a bot with an `e2e-test` workflow + deployment target | Generated Playwright suite, run report, environment teardown on PR close | ✅ |
-| **Suite promotion** | Operator opt-in per suite | Follow-up PR that "graduates" a generated suite into the repo | ⏳ planned |
+| **Suite promotion** | Operator opt-in per suite | Follow-up PR that "graduates" a generated suite into the repo | ✅ shipped |
 
 ## 🌍 Where the E2E workflow deploys its preview environment
 
