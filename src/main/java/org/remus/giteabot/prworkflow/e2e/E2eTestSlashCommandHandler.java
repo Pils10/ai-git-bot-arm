@@ -8,6 +8,7 @@ import org.remus.giteabot.prworkflow.PrWorkflowContext;
 import org.remus.giteabot.prworkflow.PrWorkflowOrchestrator;
 import org.remus.giteabot.prworkflow.config.WorkflowSelectionService;
 import org.remus.giteabot.repository.RepositoryApiClient;
+import org.remus.giteabot.repository.RepositoryProviderRegistry;
 import org.springframework.stereotype.Service;
 
 import java.util.Locale;
@@ -52,14 +53,20 @@ public class E2eTestSlashCommandHandler {
 
     private final PrWorkflowOrchestrator orchestrator;
     private final WorkflowSelectionService selectionService;
-    private final GiteaClientFactory giteaClientFactory;
+    /**
+     * Provider-agnostic {@link RepositoryApiClient} factory. Despite the
+     * legacy {@code Gitea*} name, this resolves the correct client
+     * (Gitea / GitHub / GitLab / Bitbucket) via {@link RepositoryProviderRegistry}
+     * based on {@code bot.getGitIntegration().getProviderType()}.
+     */
+    private final GiteaClientFactory repositoryClientFactory;
 
     public E2eTestSlashCommandHandler(PrWorkflowOrchestrator orchestrator,
                                       WorkflowSelectionService selectionService,
-                                      GiteaClientFactory giteaClientFactory) {
+                                      GiteaClientFactory repositoryClientFactory) {
         this.orchestrator = orchestrator;
         this.selectionService = selectionService;
-        this.giteaClientFactory = giteaClientFactory;
+        this.repositoryClientFactory = repositoryClientFactory;
     }
 
     /**
@@ -147,7 +154,7 @@ public class E2eTestSlashCommandHandler {
         String repo = payload.getRepository().getName();
         Long commentId = payload.getComment().getId();
         try {
-            RepositoryApiClient client = giteaClientFactory.getApiClient(bot.getGitIntegration());
+            RepositoryApiClient client = repositoryClientFactory.getApiClient(bot.getGitIntegration());
             client.addReaction(owner, repo, commentId, "eyes");
         } catch (RuntimeException e) {
             log.warn("[Bot '{}'] Failed to add 👀 reaction to comment #{}: {}",

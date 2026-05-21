@@ -79,7 +79,7 @@ services:
       # then either inline it here or supply it via a .env file
       # (GITEA_RUNNER_REGISTRATION_TOKEN=...). On subsequent boots this
       # env is ignored because `.runner` already exists in the volume.
-      - GITEA_RUNNER_REGISTRATION_TOKEN=${GITEA_RUNNER_REGISTRATION_TOKEN:-IExQ2fu4RH4zQzxR2oJWxYByJp18zqFZvx7QA0og}
+      - GITEA_RUNNER_REGISTRATION_TOKEN=${GITEA_RUNNER_REGISTRATION_TOKEN:-}
       # Mounted custom config (see ./gitea-runner/config.yaml). Required
       # because the default runner config spawns job containers on an
       # isolated network where `http://server:3000` (the clone URL
