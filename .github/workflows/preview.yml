@@ -35,7 +35,6 @@ jobs:
         env:
           REPO_URL: ${{ github.server_url }}/${{ github.repository }}.git
           TOKEN: ${{ github.token }}
-          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           DEFAULT_SHA: ${{ github.sha }}
         run: |
           mkdir -p "$GITHUB_WORKSPACE"
@@ -55,7 +54,7 @@ jobs:
           git remote remove origin 2>/dev/null || true
           git remote add origin "$REPO_URL"
 
-          REF_SHA="${PR_HEAD_SHA:-$DEFAULT_SHA}"
+          REF_SHA="$DEFAULT_SHA"
 
           if [ -n "$TOKEN" ]; then
             AUTH_HEADER="$(printf 'x-access-token:%s' "$TOKEN" | base64 -w 0)"
@@ -70,7 +69,6 @@ jobs:
         id: meta
         env:
           INPUT_CALLBACK_URL: ${{ inputs.callbackUrl }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
           RUN_NUMBER: ${{ github.run_number }}
         run: |
           mask_url() {
@@ -104,8 +102,8 @@ jobs:
             CALLBACK_URL="$FALLBACK_CALLBACK_URL"
           fi
 
-          SLOT="${PR_NUMBER:-run-${RUN_NUMBER}}"
-          NUMERIC_SOURCE="${PR_NUMBER:-$RUN_NUMBER}"
+          SLOT="$RUN_NUMBER"
+          NUMERIC_SOURCE="$RUN_NUMBER"
           PORT=$((20000 + (NUMERIC_SOURCE % 1000)))
           REMOTE_DIR="preview/tasklist-${SLOT}"
           PREVIEW_URL="http://${DEPLOY_HOST}:${PORT}"
