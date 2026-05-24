@@ -9,6 +9,7 @@ import java.time.Instant;
 import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -112,27 +113,29 @@ public class BotService {
         for (String token : raw.split("[,\\r\\n]+")) {
             String trimmed = token.trim();
             if (!trimmed.isEmpty()) {
-                out.add(trimmed.toLowerCase());
+                out.add(trimmed.toLowerCase(Locale.ROOT));
             }
         }
         return out;
     }
 
     /**
-     * Returns {@code true} when {@code username} is permitted to trigger
-     * AI-spending interactions with {@code bot}. A blank / unset
-     * whitelist ⇒ everyone is allowed (historical default). A blank
-     * {@code username} is never allowed when a whitelist is configured.
+     * Membership check against an already-computed allowed-username set.
+     * Extracted so {@link BotWebhookService#isCallerAllowed} can reuse
+     * the set it already holds without calling {@link #getAllowedUsernames}
+     * a second time.
+     *
+     * <p>Empty {@code allowed} ⇒ everyone is permitted (unrestricted).
+     * {@code null} / blank {@code username} ⇒ blocked when a whitelist
+     * is configured.</p>
      */
-    @Transactional(readOnly = true)
-    public boolean isUserAllowed(Bot bot, String username) {
-        Set<String> allowed = getAllowedUsernames(bot);
+    public boolean isUsernameInSet(Set<String> allowed, String username) {
         if (allowed.isEmpty()) {
             return true;
         }
         if (username == null || username.isBlank()) {
             return false;
         }
-        return allowed.contains(username.trim().toLowerCase());
+        return allowed.contains(username.trim().toLowerCase(Locale.ROOT));
     }
 }

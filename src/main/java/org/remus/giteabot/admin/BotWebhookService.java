@@ -111,6 +111,9 @@ public class BotWebhookService {
             log.debug("[Bot '{}'] Writer bot ignores pull request review event", bot.getName());
             return;
         }
+        if (!isCallerAllowed(bot, payload)) {
+            return;
+        }
         try {
             prWorkflowOrchestrator.runAll(bot, payload);
         } catch (Exception e) {
@@ -143,6 +146,9 @@ public class BotWebhookService {
             log.debug("[Bot '{}'] Writer bot ignores pull request command", bot.getName());
             return;
         }
+        if (!isCallerAllowed(bot, payload)) {
+            return;
+        }
         try {
             if (e2eTestSlashCommandHandler.tryHandle(bot, payload)) {
                 return;
@@ -172,6 +178,9 @@ public class BotWebhookService {
     public void handlePrComment(Bot bot, WebhookPayload payload) {
         if (bot.getBotType() == BotType.WRITER) {
             log.debug("[Bot '{}'] Writer bot ignores pull request comment", bot.getName());
+            return;
+        }
+        if (!isCallerAllowed(bot, payload)) {
             return;
         }
         String owner = payload.getRepository().getOwner().getLogin();
@@ -233,6 +242,9 @@ public class BotWebhookService {
             log.debug("[Bot '{}'] Writer bot ignores inline review comment", bot.getName());
             return;
         }
+        if (!isCallerAllowed(bot, payload)) {
+            return;
+        }
         if (!isWorkflowEnabled(bot, ReviewWorkflow.KEY)) {
             log.debug("[Bot '{}'] Review workflow not enabled — ignoring inline review comment", bot.getName());
             return;
@@ -253,6 +265,9 @@ public class BotWebhookService {
     public void handleReviewSubmitted(Bot bot, WebhookPayload payload) {
         if (bot.getBotType() == BotType.WRITER) {
             log.debug("[Bot '{}'] Writer bot ignores submitted review", bot.getName());
+            return;
+        }
+        if (!isCallerAllowed(bot, payload)) {
             return;
         }
         if (!isWorkflowEnabled(bot, ReviewWorkflow.KEY)) {
@@ -315,6 +330,9 @@ public class BotWebhookService {
      */
     @Async
     public void handleIssueAssigned(Bot bot, WebhookPayload payload) {
+        if (!isCallerAllowed(bot, payload)) {
+            return;
+        }
         if (bot.getBotType() == BotType.WRITER) {
             try {
                 createWriterAgentService(bot).handleIssueAssigned(payload);
@@ -458,10 +476,15 @@ public class BotWebhookService {
      * Token-spend guard for public-repo deployments: returns {@code true}
      * when the bot's configured {@link Bot#getUserWhitelist() user
      * whitelist} permits the webhook caller, or when no whitelist is
-     * configured (historical "everyone allowed" behaviour). All
-     * whitelist parsing / matching is delegated to
-     * {@link BotService#isUserAllowed(Bot, String)} so the JPA entity
-     * stays free of business logic.
+     * configured (historical "everyone allowed" behaviour).
+     *
+     * <p>The whitelist is parsed once via
+     * {@link BotService#getAllowedUsernames(Bot)}; the resulting set is
+     * then passed directly to
+     * {@link BotService#isUsernameInSet(Set, String)} so the blob is
+     * never re-parsed for the membership check. All lowercasing uses
+     * {@link java.util.Locale#ROOT} for locale-independent identifier
+     * comparison.</p>
      */
     boolean isCallerAllowed(Bot bot, WebhookPayload payload) {
         if (bot == null) {
@@ -472,7 +495,7 @@ public class BotWebhookService {
             return true;
         }
         String caller = resolveCallerUsername(payload);
-        if (botService.isUserAllowed(bot, caller)) {
+        if (botService.isUsernameInSet(allowed, caller)) {
             return true;
         }
         log.info("[Bot '{}'] Ignoring webhook from user '{}' — not in whitelist ({} entries)",
