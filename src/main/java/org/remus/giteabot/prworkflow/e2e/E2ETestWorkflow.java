@@ -154,8 +154,7 @@ public class E2ETestWorkflow implements PrWorkflow {
     public WorkflowResult run(PrWorkflowContext context) {
         Bot bot = context.bot();
         WebhookPayload payload = context.payload();
-        long prNumber = payload.getPullRequest() == null
-                ? 0L : (payload.getPullRequest().getNumber() == null ? 0L : payload.getPullRequest().getNumber());
+        long prNumber = resolvePrNumber(payload);
 
         Map<String, Object> params = bot.getWorkflowConfiguration() == null
                 ? Map.of()
@@ -183,8 +182,14 @@ public class E2ETestWorkflow implements PrWorkflow {
         // when we are in rerun-only mode. If none exists we fall back to a full run.
         PrTestSuite previousSuite = null;
         if (rerunOnly) {
+            // NB: findByPrNumberOrderByIdDesc returns detached entities with a lazy
+            // `cases` bag - accessing it here would throw LazyInitializationException
+            // because the async workflow runs outside the repository's transaction.
+            // Re-fetch each candidate via the fetch-join query until we find one with
+            // actual test cases attached.
             previousSuite = suiteRepository.findByPrNumberOrderByIdDesc(prNumber).stream()
-                    .filter(s -> s.getCases() != null && !s.getCases().isEmpty())
+                    .map(s -> suiteRepository.findByIdWithCases(s.getId()).orElse(null))
+                    .filter(s -> s != null && s.getCases() != null && !s.getCases().isEmpty())
                     .findFirst()
                     .orElse(null);
             if (previousSuite == null) {
@@ -408,6 +413,25 @@ public class E2ETestWorkflow implements PrWorkflow {
             return null;
         }
         return payload.getPullRequest().getHead().getSha();
+    }
+
+    /**
+     * Resolves the pull-request number using the same fallback chain as
+     * {@code PrWorkflowOrchestrator.resolvePrNumber}: PR object first,
+     * then issue (for GitHub {@code issue_comment} events that lack the
+     * pull-request block), then the top-level {@code number} field.
+     */
+    private long resolvePrNumber(WebhookPayload payload) {
+        if (payload.getPullRequest() != null && payload.getPullRequest().getNumber() != null) {
+            return payload.getPullRequest().getNumber();
+        }
+        if (payload.getIssue() != null && payload.getIssue().getNumber() != null) {
+            return payload.getIssue().getNumber();
+        }
+        if (payload.getNumber() != null) {
+            return payload.getNumber();
+        }
+        return 0L;
     }
 }
 
