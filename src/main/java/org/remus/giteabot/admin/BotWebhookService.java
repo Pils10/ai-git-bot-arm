@@ -15,6 +15,8 @@ import org.remus.giteabot.gitea.model.WebhookPayload;
 import org.remus.giteabot.mcp.McpOrchestrationService;
 import org.remus.giteabot.mcp.McpToolCatalog;
 import org.remus.giteabot.prworkflow.PrWorkflowOrchestrator;
+import org.remus.giteabot.prworkflow.config.WorkflowSelectionService;
+import org.remus.giteabot.prworkflow.e2e.E2ETestWorkflow;
 import org.remus.giteabot.prworkflow.e2e.E2eTestPrCloseHandler;
 import org.remus.giteabot.prworkflow.e2e.E2eTestSlashCommandHandler;
 import org.remus.giteabot.prworkflow.review.CodeReviewServiceFactory;
@@ -58,6 +60,7 @@ public class BotWebhookService {
     private final CodeReviewServiceFactory codeReviewServiceFactory;
     private final E2eTestPrCloseHandler e2eTestPrCloseHandler;
     private final E2eTestSlashCommandHandler e2eTestSlashCommandHandler;
+    private final WorkflowSelectionService workflowSelectionService;
 
     public BotWebhookService(AiClientFactory aiClientFactory,
                              GiteaClientFactory giteaClientFactory,
@@ -74,7 +77,8 @@ public class BotWebhookService {
                               PrWorkflowOrchestrator prWorkflowOrchestrator,
                               CodeReviewServiceFactory codeReviewServiceFactory,
                               E2eTestPrCloseHandler e2eTestPrCloseHandler,
-                              E2eTestSlashCommandHandler e2eTestSlashCommandHandler) {
+                              E2eTestSlashCommandHandler e2eTestSlashCommandHandler,
+                              WorkflowSelectionService workflowSelectionService) {
         this.aiClientFactory = aiClientFactory;
         this.giteaClientFactory = giteaClientFactory;
         this.promptService = promptService;
@@ -91,6 +95,7 @@ public class BotWebhookService {
         this.codeReviewServiceFactory = codeReviewServiceFactory;
         this.e2eTestPrCloseHandler = e2eTestPrCloseHandler;
         this.e2eTestSlashCommandHandler = e2eTestSlashCommandHandler;
+        this.workflowSelectionService = workflowSelectionService;
     }
 
     /**
@@ -114,7 +119,17 @@ public class BotWebhookService {
 
     /**
      * Handles a bot-mention command in a PR comment.
-     * Delegates to {@link CodeReviewService#handleBotCommand(WebhookPayload, String)}.
+     * <p>
+     * Routing order:
+     * <ol>
+     *   <li>{@link E2eTestSlashCommandHandler} — recognised E2E slash commands.</li>
+     *   <li>{@link CodeReviewService#handleBotCommand(WebhookPayload, String)} —
+     *       general-purpose review fallback, <em>only</em> when the
+     *       {@link ReviewWorkflow review workflow} is enabled on the bot's
+     *       configuration. A bot that is not configured to run code reviews
+     *       must never silently fall into the reviewer prompt; instead we
+     *       post a short "command not understood" reply.</li>
+     * </ol>
      */
     @Async
     public void handleBotCommand(Bot bot, WebhookPayload payload) {
@@ -130,7 +145,13 @@ public class BotWebhookService {
             if (e2eTestSlashCommandHandler.tryHandle(bot, payload)) {
                 return;
             }
-            createCodeReviewService(bot).handleBotCommand(payload, null);
+            if (isWorkflowEnabled(bot, ReviewWorkflow.KEY)) {
+                createCodeReviewService(bot).handleBotCommand(payload, null);
+                return;
+            }
+            log.info("[Bot '{}'] Comment mentions bot but no slash command matched and review workflow is not enabled — replying with unrecognised-command notice",
+                    bot.getName());
+            postUnrecognisedCommandComment(bot, payload);
         } catch (Exception e) {
             log.error("[Bot '{}'] Failed to handle command: {}", bot.getName(), e.getMessage(), e);
             botService.recordError(bot, e.getMessage());
@@ -182,7 +203,13 @@ public class BotWebhookService {
                 if (e2eTestSlashCommandHandler.tryHandle(bot, payload)) {
                     return;
                 }
-                createCodeReviewService(bot).handleBotCommand(payload, null);
+                if (isWorkflowEnabled(bot, ReviewWorkflow.KEY)) {
+                    createCodeReviewService(bot).handleBotCommand(payload, null);
+                    return;
+                }
+                log.info("[Bot '{}'] Comment mentions bot but no slash command matched and review workflow is not enabled — replying with unrecognised-command notice",
+                        bot.getName());
+                postUnrecognisedCommandComment(bot, payload);
             } catch (Exception e) {
                 log.error("[Bot '{}'] Failed to handle PR comment via review handler: {}", bot.getName(), e.getMessage(), e);
                 botService.recordError(bot, e.getMessage());
@@ -204,6 +231,10 @@ public class BotWebhookService {
             log.debug("[Bot '{}'] Writer bot ignores inline review comment", bot.getName());
             return;
         }
+        if (!isWorkflowEnabled(bot, ReviewWorkflow.KEY)) {
+            log.debug("[Bot '{}'] Review workflow not enabled — ignoring inline review comment", bot.getName());
+            return;
+        }
         try {
             createCodeReviewService(bot).handleInlineComment(payload, null);
         } catch (Exception e) {
@@ -220,6 +251,10 @@ public class BotWebhookService {
     public void handleReviewSubmitted(Bot bot, WebhookPayload payload) {
         if (bot.getBotType() == BotType.WRITER) {
             log.debug("[Bot '{}'] Writer bot ignores submitted review", bot.getName());
+            return;
+        }
+        if (!isWorkflowEnabled(bot, ReviewWorkflow.KEY)) {
+            log.debug("[Bot '{}'] Review workflow not enabled — ignoring submitted review", bot.getName());
             return;
         }
         try {
@@ -324,6 +359,94 @@ public class BotWebhookService {
             log.error("[Bot '{}'] Failed to handle issue comment: {}", bot.getName(), e.getMessage(), e);
             botService.recordError(bot, e.getMessage());
         }
+    }
+
+    /**
+     * Checks whether a given workflow key is enabled on the bot's
+     * {@link org.remus.giteabot.prworkflow.config.WorkflowConfiguration}.
+     *
+     * <p>Bots without a workflow configuration fall back to the legacy
+     * default (only {@link ReviewWorkflow} is implicitly enabled), matching
+     * the behaviour of {@link PrWorkflowOrchestrator#runAll(Bot, WebhookPayload)}.</p>
+     */
+    boolean isWorkflowEnabled(Bot bot, String workflowKey) {
+        if (bot == null || workflowKey == null) {
+            return false;
+        }
+        if (bot.getWorkflowConfiguration() == null) {
+            // Legacy: bots without an explicit configuration only run the review workflow.
+            return ReviewWorkflow.KEY.equals(workflowKey);
+        }
+        try {
+            return workflowSelectionService
+                    .enabledWorkflowKeys(bot.getWorkflowConfiguration().getId())
+                    .contains(workflowKey);
+        } catch (RuntimeException e) {
+            log.debug("[Bot '{}'] enabled-check for workflow '{}' failed: {}",
+                    bot.getName(), workflowKey, e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Posts a short reply telling the user that the bot did not recognise
+     * their command. Used when the bot is mentioned on a PR but
+     * <ol>
+     *   <li>no slash-command handler picked it up, and</li>
+     *   <li>the {@link ReviewWorkflow review workflow} is not enabled, so
+     *       falling into the generic code-review prompt would mean running
+     *       a workflow the bot has not been configured for.</li>
+     * </ol>
+     * The reply is best-effort: any failure to post is swallowed and
+     * logged.
+     */
+    private void postUnrecognisedCommandComment(Bot bot, WebhookPayload payload) {
+        if (payload == null || payload.getRepository() == null
+                || payload.getRepository().getOwner() == null) {
+            return;
+        }
+        Long prNumber = resolvePrOrIssueNumber(payload);
+        if (prNumber == null) {
+            return;
+        }
+        String owner = payload.getRepository().getOwner().getLogin();
+        String repo = payload.getRepository().getName();
+        String body = buildUnrecognisedCommandReply(bot);
+        try {
+            RepositoryApiClient client = giteaClientFactory.getApiClient(bot.getGitIntegration());
+            client.postIssueComment(owner, repo, prNumber, body);
+        } catch (RuntimeException e) {
+            log.warn("[Bot '{}'] Failed to post unrecognised-command reply on PR #{}: {}",
+                    bot.getName(), prNumber, e.getMessage());
+        }
+    }
+
+    private String buildUnrecognisedCommandReply(Bot bot) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("🤖 Sorry, I did not understand that command.\n\n");
+        sb.append("This bot is not configured to run code reviews, so I can only respond ");
+        sb.append("to the slash commands listed below. Anything else will be ignored.\n\n");
+        if (isWorkflowEnabled(bot, E2ETestWorkflow.KEY)) {
+            sb.append("Available commands:\n");
+            sb.append("- `@").append(bot.getUsername() == null ? "bot" : bot.getUsername())
+                    .append(" rerun-tests` — re-run the most recent E2E test suite for this PR.\n");
+            sb.append("- `@").append(bot.getUsername() == null ? "bot" : bot.getUsername())
+                    .append(" regenerate-tests [feedback]` — regenerate the E2E test suite from scratch, ")
+                    .append("optionally with free-form feedback for the planner.\n");
+        } else {
+            sb.append("No interactive commands are configured for this bot.\n");
+        }
+        return sb.toString();
+    }
+
+    private Long resolvePrOrIssueNumber(WebhookPayload payload) {
+        if (payload.getPullRequest() != null && payload.getPullRequest().getNumber() != null) {
+            return payload.getPullRequest().getNumber();
+        }
+        if (payload.getIssue() != null && payload.getIssue().getNumber() != null) {
+            return payload.getIssue().getNumber();
+        }
+        return payload.getNumber();
     }
 
     /**
