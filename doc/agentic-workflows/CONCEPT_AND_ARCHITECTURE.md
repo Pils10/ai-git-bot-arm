@@ -1,4 +1,4 @@
-# Agentic PR Workflows — Concept &amp; Architecture
+# Agentic PR Workflows — Concept & Architecture
 
 This document is the conceptual reference for the agentic PR-workflow
 subsystem of AI-Git-Bot: the **`PrWorkflow`** SPI, the
