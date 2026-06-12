@@ -67,13 +67,27 @@ RUN wget -q https://packages.microsoft.com/config/ubuntu/24.04/packages-microsof
 # ---------------------------------------------------------------------------
 # k6 (Grafana APT repo) — used by the PR-workflow `k6` test framework.
 # ---------------------------------------------------------------------------
-RUN gpg -k && \
-    gpg --no-default-keyring --keyring /usr/share/keyrings/k6-archive-keyring.gpg \
-        --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69 && \
-    echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" \
-        > /etc/apt/sources.list.d/k6.list && \
-    apt-get update && apt-get install -y --no-install-recommends k6 && \
-    rm -rf /var/lib/apt/lists/* && \
+# ---------------------------------------------------------------------------
+# Install k6
+# ---------------------------------------------------------------------------
+ARG K6_VERSION=2.0.0
+ARG TARGETARCH
+
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends ca-certificates curl tar; \
+    rm -rf /var/lib/apt/lists/*; \
+    case "${TARGETARCH:-arm64}" in \
+      arm64) K6_ARCH="arm64" ;; \
+      amd64) K6_ARCH="amd64" ;; \
+      *) echo "Unsupported architecture: ${TARGETARCH}"; exit 1 ;; \
+    esac; \
+    curl -fsSL \
+      "https://github.com/grafana/k6/releases/download/v${K6_VERSION}/k6-v${K6_VERSION}-linux-${K6_ARCH}.tar.gz" \
+      -o /tmp/k6.tar.gz; \
+    tar -xzf /tmp/k6.tar.gz -C /tmp; \
+    install -m 0755 "/tmp/k6-v${K6_VERSION}-linux-${K6_ARCH}/k6" /usr/local/bin/k6; \
+    rm -rf /tmp/k6*; \
     k6 version
 
 # ---------------------------------------------------------------------------
